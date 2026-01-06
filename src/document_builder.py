@@ -208,8 +208,8 @@ class DocumentBuilder:
             if item_type == "text":
                 text = item.get("text", "")
                 text_level = item.get("text_level")
+
                 # Look ahead to check if next items are page numbers on same page
-                # If so, use KeepWithNext to keep this content with the page number
                 next_item_has_page_number = False
                 if i + 1 < len(items):
                     next_item = items[i + 1]
@@ -218,11 +218,18 @@ class DocumentBuilder:
                         next_item.get("text", "").strip().isdigit()):
                         next_item_has_page_number = True
 
-                # text_level=1 indicates section headers (bold styling)
+                # Smart spacing: Add proper spacer only after section headers (text_level=1)
+                # Body text (text_level=None) gets minimal spacing to prevent overflow
                 if text_level == 1:
-                    self._add_text_block(text, style=self.body_style_bold, skip_trailing_space=next_item_has_page_number, keep_with_next=next_item_has_page_number)
+                    # Section header - normal spacing
+                    self._add_text_block(text, style=self.body_style_bold,
+                                        spacer_after=0.15 if not next_item_has_page_number else 0,
+                                        keep_with_next=next_item_has_page_number)
                 else:
-                    self._add_text_block(text, style=self.body_style, skip_trailing_space=next_item_has_page_number, keep_with_next=next_item_has_page_number)
+                    # Body text/proverbs - minimal spacing
+                    self._add_text_block(text, style=self.body_style,
+                                        spacer_after=0.05 if not next_item_has_page_number else 0,
+                                        keep_with_next=next_item_has_page_number)
             elif item_type == "image":
                 self._add_image(item)
             elif item_type == "header":
@@ -250,9 +257,13 @@ class DocumentBuilder:
                         next_item_has_page_number = True
 
                 if text_level == 1:
-                    self._add_text_block(text, style=self.body_style_bold, skip_trailing_space=next_item_has_page_number, keep_with_next=next_item_has_page_number)
+                    self._add_text_block(text, style=self.body_style_bold,
+                                        spacer_after=0.15 if not next_item_has_page_number else 0,
+                                        keep_with_next=next_item_has_page_number)
                 else:
-                    self._add_text_block(text, style=self.body_style, skip_trailing_space=next_item_has_page_number, keep_with_next=next_item_has_page_number)
+                    self._add_text_block(text, style=self.body_style,
+                                        spacer_after=0.05 if not next_item_has_page_number else 0,
+                                        keep_with_next=next_item_has_page_number)
 
     def add_from_mineru_markdown(self, markdown_text: str):
         """
@@ -263,7 +274,7 @@ class DocumentBuilder:
         """
         self._add_markdown_text(markdown_text)
 
-    def _add_text_block(self, text: str, style=None, skip_trailing_space=False, keep_with_next=False):
+    def _add_text_block(self, text: str, style=None, spacer_after=0.2, keep_with_next=False):
         """
         Add a text paragraph to the document.
 
@@ -273,7 +284,7 @@ class DocumentBuilder:
         Args:
             text: The text content to add
             style: Optional ParagraphStyle to use (defaults to body_style)
-            skip_trailing_space: If True, don't add trailing spacer (saves space before page numbers)
+            spacer_after: Height of spacer to add after this block in cm (0 for no spacer)
             keep_with_next: If True, set keepWithNext=True on last paragraph (keeps with following element like page number)
         """
         if not text or not text.strip():
@@ -292,8 +303,8 @@ class DocumentBuilder:
                 para.keepWithNext = True
             self.story.append(para)
 
-        if not skip_trailing_space:
-            self.story.append(Spacer(1, 0.2 * cm))
+        if spacer_after > 0:
+            self.story.append(Spacer(1, spacer_after * cm))
 
     def _add_header(self, text: str):
         """
