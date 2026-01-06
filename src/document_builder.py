@@ -99,6 +99,17 @@ class DocumentBuilder:
             spaceAfter=8,
         )
 
+        self.body_style_bold = ParagraphStyle(
+            'BodyBold',
+            parent=self.body_style,
+            fontName=self.font_name,
+            fontSize=11,
+            leading=14,
+            alignment=TA_JUSTIFY,
+            spaceAfter=8,
+            fontWeight='bold',
+        )
+
         self.heading_style = ParagraphStyle(
             'Heading',
             parent=self.styles['Heading1'],
@@ -124,6 +135,10 @@ class DocumentBuilder:
         Args:
             content: MinerU JSON response with structured content.
                      Can be a list of items directly, or a dict with "content" key.
+
+        Handles:
+            - Page breaks via page_idx field
+            - Bold styling via text_level field (text_level=1 is bold)
         """
         # MinerU JSON structure can be:
         # 1. A list of content items directly: [{'type': 'text', ...}, ...]
@@ -140,11 +155,27 @@ class DocumentBuilder:
             self._add_markdown_text(text_content)
             return
 
+        # Track current page for page breaks
+        current_page_idx = None
+
         for item in items:
             item_type = item.get("type", "")
 
+            # Check for page break using page_idx field
+            page_idx = item.get("page_idx")
+            if page_idx is not None and current_page_idx is not None and page_idx != current_page_idx:
+                # Page changed, insert a page break
+                self.story.append(PageBreak())
+            current_page_idx = page_idx if page_idx is not None else current_page_idx
+
             if item_type == "text":
-                self._add_text_block(item.get("text", ""))
+                text = item.get("text", "")
+                text_level = item.get("text_level")
+                # text_level=1 indicates section headers (bold styling)
+                if text_level == 1:
+                    self._add_text_block(text, style=self.body_style_bold)
+                else:
+                    self._add_text_block(text, style=self.body_style)
             elif item_type == "image":
                 self._add_image(item)
             elif item_type == "header":
@@ -159,7 +190,12 @@ class DocumentBuilder:
                 continue
             else:
                 # Unknown type, try to add as text
-                self._add_text_block(item.get("text", ""))
+                text = item.get("text", "")
+                text_level = item.get("text_level")
+                if text_level == 1:
+                    self._add_text_block(text, style=self.body_style_bold)
+                else:
+                    self._add_text_block(text, style=self.body_style)
 
     def add_from_mineru_markdown(self, markdown_text: str):
         """
@@ -170,24 +206,28 @@ class DocumentBuilder:
         """
         self._add_markdown_text(markdown_text)
 
-    def _add_text_block(self, text: str):
+    def _add_text_block(self, text: str, style=None):
         """
         Add a text paragraph to the document.
 
         Splits text by newlines and creates a separate Paragraph
-        for each line with body text styling.
+        for each line with the specified style.
 
         Args:
             text: The text content to add
+            style: Optional ParagraphStyle to use (defaults to body_style)
         """
         if not text or not text.strip():
             return
+
+        if style is None:
+            style = self.body_style
 
         # Split by lines and add each as a paragraph
         for line in text.split('\n'):
             line = line.strip()
             if line:
-                self.story.append(Paragraph(line, self.body_style))
+                self.story.append(Paragraph(line, style))
 
         self.story.append(Spacer(1, 0.2 * cm))
 
