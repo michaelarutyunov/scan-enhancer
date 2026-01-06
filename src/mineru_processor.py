@@ -272,6 +272,7 @@ class MinerUAPIProcessor:
 
                     # Find the content file (usually the first file, or named after original)
                     zip_files = zip_ref.namelist()
+                    print(f"DEBUG: ZIP files: {zip_files}")
 
                     # Get the first file that's not a directory or in images folder
                     content_file = None
@@ -287,15 +288,33 @@ class MinerUAPIProcessor:
                             "result": {"error": "No content file found in ZIP"}
                         }
 
+                    print(f"DEBUG: Content file: {content_file}")
                     # Read the content
                     content_path = os.path.join(temp_dir, content_file)
                     with open(content_path, 'rb') as f:
                         content_bytes = f.read()
 
+                    print(f"DEBUG: Content size: {len(content_bytes)} bytes")
+                    print(f"DEBUG: First 100 bytes: {content_bytes[:100]}")
+
                     # Parse based on output format
                     if output_format == "json":
                         # Parse JSON content
-                        content = json.loads(content_bytes.decode('utf-8'))
+                        try:
+                            content_text = content_bytes.decode('utf-8')
+                            if not content_text.strip():
+                                return {
+                                    "task_id": task_id,
+                                    "status": "failed",
+                                    "result": {"error": "Content file is empty"}
+                                }
+                            content = json.loads(content_text)
+                        except json.JSONDecodeError as je:
+                            return {
+                                "task_id": task_id,
+                                "status": "failed",
+                                "result": {"error": f"Invalid JSON in content file: {str(je)}. First 200 chars: {content_text[:200]}"}
+                            }
                     else:
                         # Markdown content as string
                         content = content_bytes.decode('utf-8')
@@ -308,10 +327,11 @@ class MinerUAPIProcessor:
                     }
 
             except Exception as e:
+                import traceback
                 return {
                     "task_id": task_id,
                     "status": "failed",
-                    "result": {"error": f"Failed to download/extract ZIP: {str(e)}"}
+                    "result": {"error": f"Failed to download/extract ZIP: {str(e)}\nTraceback: {traceback.format_exc()}"}
                 }
         else:
             return {
