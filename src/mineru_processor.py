@@ -32,8 +32,7 @@ class MinerUAPIProcessor:
             )
 
         self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {self.api_key}"
         }
 
     def submit_task(
@@ -42,7 +41,7 @@ class MinerUAPIProcessor:
         output_format: OutputFormat = "json"
     ) -> str:
         """
-        Submit a PDF parsing task to MinerU API.
+        Submit a PDF parsing task to MinerU API using the file-urls/batch workflow.
 
         Args:
             pdf_path: Path to the PDF file to parse
@@ -58,40 +57,54 @@ class MinerUAPIProcessor:
         if not pdf_file.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
-        # Check file size (API limit is 200MB)
+        # Check file size (API limit is ~20MB for single file)
         file_size_mb = pdf_file.stat().st_size / (1024 * 1024)
-        if file_size_mb > 200:
+        if file_size_mb > 20:
             raise ValueError(
                 f"PDF file too large: {file_size_mb:.1f}MB. "
-                f"API limit is 200MB."
+                f"API limit is 20MB."
             )
 
-        url = f"{self.API_BASE_URL}/extract/task"
-
-        # Prepare multipart form data
-        files = {
-            "file": (pdf_file.name, open(pdf_path, "rb"), "application/pdf")
+        # Step 1: Get upload URL from file-urls/batch endpoint
+        batch_url = f"{self.API_BASE_URL}/file-urls/batch"
+        batch_data = {
+            "urls": [{
+                "filename": pdf_file.name,
+                "file_size": pdf_file.stat().st_size
+            }]
         }
 
-        try:
-            response = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                files=files,
-                timeout=60
+        batch_response = requests.post(
+            batch_url,
+            headers=self.headers,
+            json=batch_data,
+            timeout=30
+        )
+        batch_response.raise_for_status()
+        batch_result = batch_response.json()
+
+        # Extract upload URL from response
+        if batch_result.get("code") != 0:
+            raise ValueError(f"Failed to get upload URL: {batch_result}")
+
+        upload_info = batch_result.get("data", {}).get("urls", [{}])[0]
+        upload_url = upload_info.get("upload_url")
+        task_id = upload_info.get("task_id")
+
+        if not upload_url or not task_id:
+            raise ValueError(f"No upload URL or task_id in response: {batch_result}")
+
+        # Step 2: Upload file to the presigned URL using PUT
+        with open(pdf_path, "rb") as f:
+            upload_response = requests.put(
+                upload_url,
+                data=f,
+                headers={},  # Don't set Content-Type, let OSS handle it
+                timeout=120
             )
-            response.raise_for_status()
+        upload_response.raise_for_status()
 
-            result = response.json()
-            task_id = result.get("data", {}).get("task_id")
-
-            if not task_id:
-                raise ValueError(f"No task_id in response: {result}")
-
-            return task_id
-
-        finally:
-            files["file"][1].close()
+        return task_id
 
     def get_task_status(self, task_id: str) -> Dict:
         """
@@ -142,19 +155,27 @@ class MinerUAPIProcessor:
 
         while True:
             result = self.get_task_status(task_id)
-            data = result.get("data", {})
-            status = data.get("status")
 
-            if status == "completed":
-                return result
-            elif status == "failed":
-                error = data.get("error", "Unknown error")
-                raise RuntimeError(f"Task failed: {error}")
-            elif status in ("pending", "processing"):
-                # Continue polling
-                pass
+            # Check response structure
+            if result.get("code") == 0:
+                data = result.get("data", {})
+                status = data.get("status", "")
+
+                if status == "completed":
+                    return result
+                elif status == "failed":
+                    error = data.get("error", "Unknown error")
+                    raise RuntimeError(f"Task failed: {error}")
+                elif status in ("pending", "processing"):
+                    # Continue polling
+                    pass
+                else:
+                    # Unknown status but continue polling
+                    pass
             else:
-                raise ValueError(f"Unknown status: {status}")
+                # Error response, but might be transient
+                error_msg = result.get("msg", "Unknown error")
+                print(f"Warning: API returned error: {error_msg}")
 
             # Check timeout
             if time.time() - start_time > max_wait_seconds:
@@ -164,44 +185,6 @@ class MinerUAPIProcessor:
                 )
 
             time.sleep(poll_interval)
-
-    def download_result(self, task_id: str, output_path: str) -> str:
-        """
-        Download the result file from a completed task.
-
-        Args:
-            task_id: The completed task ID
-            output_path: Where to save the result file
-
-        Returns:
-            Path to the downloaded file
-
-        Raises:
-            requests.RequestException: If download fails
-        """
-        # First get the task status to find the download URL
-        result = self.get_task_status(task_id)
-        download_url = result.get("data", {}).get("result", {}).get("download_url")
-
-        if not download_url:
-            raise ValueError(f"No download URL in response: {result}")
-
-        response = requests.get(
-            download_url,
-            headers=self.headers,
-            stream=True,
-            timeout=60
-        )
-        response.raise_for_status()
-
-        output_file = Path(output_path)
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(output_file, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-        return str(output_file)
 
     def process_pdf(
         self,
