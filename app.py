@@ -97,6 +97,17 @@ def process_pdf(
             base_name = clean_filename(os.path.basename(pdf_path))
             output_path = f"{base_name}_cleaned.pdf"
 
+            # DEBUG: Trace code path
+            print("=" * 80)
+            print("DEBUG: PDF RENDERING DECISION")
+            print(f"DEBUG: layout_data is None: {layout_data is None}")
+            print(f"DEBUG: layout_data type: {type(layout_data)}")
+            if layout_data:
+                print(f"DEBUG: pdf_info count: {len(layout_data.get('pdf_info', []))}")
+                print(f"DEBUG: First page has preproc_blocks: {'preproc_blocks' in layout_data.get('pdf_info', [{}])[0]}")
+            print(f"DEBUG: result_data type: {type(result_data)}")
+            print("=" * 80)
+
             # Build PDF from MinerU output
             # Prefer layout.json for exact positioning (matches original page layout)
             if layout_data:
