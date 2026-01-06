@@ -265,6 +265,12 @@ class MinerUAPIProcessor:
                 import tempfile
                 temp_dir = tempfile.mkdtemp(prefix="mineru_")
 
+                # Save ZIP file for diagnostic download
+                zip_path = os.path.join(temp_dir, "mineru_output.zip")
+                with open(zip_path, 'wb') as f:
+                    f.write(zip_response.content)
+                print(f"DEBUG: Saved MinerU ZIP to: {zip_path}")
+
                 # Extract content from ZIP
                 with zipfile.ZipFile(io.BytesIO(zip_response.content)) as zip_ref:
                     # Extract all files to temp directory
@@ -321,24 +327,40 @@ class MinerUAPIProcessor:
                                 return {
                                     "task_id": task_id,
                                     "status": "failed",
-                                    "result": {"error": "Content file is empty"}
+                                    "result": {"error": "Content file is empty"},
+                                    "zip_path": zip_path
                                 }
+
+                            # Log raw MinerU output for debugging
+                            print("=" * 60)
+                            print("DEBUG: RAW MINERU OUTPUT (first 500 chars):")
+                            print(content_text[:500])
+                            print("=" * 60)
+
                             content = json.loads(content_text)
                         except json.JSONDecodeError as je:
                             return {
                                 "task_id": task_id,
                                 "status": "failed",
-                                "result": {"error": f"Invalid JSON: {str(je)}. First 200 chars: {content_text[:200]}"}
+                                "result": {"error": f"Invalid JSON: {str(je)}. First 200 chars: {content_text[:200]}"},
+                                "zip_path": zip_path
                             }
                     else:
                         # Treat as markdown/text
                         content = content_bytes.decode('utf-8')
 
+                        # Log raw MinerU output for debugging
+                        print("=" * 60)
+                        print("DEBUG: RAW MINERU OUTPUT (first 500 chars):")
+                        print(content[:500])
+                        print("=" * 60)
+
                     return {
                         "task_id": task_id,
                         "status": "completed",
                         "result": content,
-                        "temp_dir": temp_dir  # Pass temp dir for image access
+                        "temp_dir": temp_dir,  # Pass temp dir for image access
+                        "zip_path": zip_path   # Pass ZIP path for diagnostic download
                     }
 
             except Exception as e:

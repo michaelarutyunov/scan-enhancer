@@ -35,8 +35,9 @@ def process_pdf(
     pdf_file,
     output_format: str,
     language: str,
+    download_raw: bool,
     progress=gr.Progress()
-) -> str:
+) -> tuple:
     """
     Main processing pipeline using MinerU API.
 
@@ -44,10 +45,11 @@ def process_pdf(
         pdf_file: Uploaded PDF file object
         output_format: "json" or "markdown" - MinerU output format
         language: Language code for OCR (e.g., "ru" for Russian)
+        download_raw: If True, also return raw MinerU output ZIP
         progress: Gradio progress tracker
 
     Returns:
-        Path to output PDF file for download
+        Tuple of (output PDF path, MinerU ZIP path or None)
     """
     if pdf_file is None:
         raise gr.Error("Please upload a PDF file")
@@ -88,6 +90,7 @@ def process_pdf(
 
             # Get the parsed content
             temp_dir = result.get("temp_dir")
+            zip_path = result.get("zip_path")
 
             # Create output filename
             base_name = clean_filename(os.path.basename(pdf_path))
@@ -102,7 +105,12 @@ def process_pdf(
             )
 
             progress(1.0, desc="Complete!")
-            return output_path
+
+            # Return both PDF and optionally the ZIP file
+            if download_raw and zip_path and os.path.exists(zip_path):
+                return output_path, zip_path
+            else:
+                return output_path, None
         else:
             # Extract error message if available
             error_msg = result_data.get("error", status)
@@ -174,6 +182,12 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             - Files must be under 200 MB
             """)
 
+            download_raw = gr.Checkbox(
+                label="Download raw MinerU output (for diagnostics)",
+                value=False,
+                info="Enable to also download the raw MinerU ZIP file for debugging"
+            )
+
             process_btn = gr.Button(
                 "🚀 Process Document",
                 variant="primary",
@@ -186,6 +200,12 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 type="filepath"
             )
 
+            mineru_output = gr.File(
+                label="🔧 Download Raw MinerU Output (ZIP)",
+                type="filepath",
+                visible=False
+            )
+
             gr.Markdown("""
             **What happens during processing:**
             1. PDF is uploaded to MinerU cloud API
@@ -194,11 +214,18 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             4. Clean PDF is generated with preserved structure
             """)
 
+    # Toggle MinerU output visibility when checkbox changes
+    download_raw.change(
+        fn=lambda x: gr.update(visible=x),
+        inputs=[download_raw],
+        outputs=[mineru_output]
+    )
+
     # Connect processing function
     process_btn.click(
         fn=process_pdf,
-        inputs=[pdf_input, output_format, language],
-        outputs=output_file
+        inputs=[pdf_input, output_format, language, download_raw],
+        outputs=[output_file, mineru_output]
     )
 
     gr.Markdown("""

@@ -42,15 +42,21 @@ class DocumentBuilder:
         Register fonts that support Cyrillic characters.
 
         Tries multiple font paths in order of preference:
-        1. DejaVu Sans (Linux)
-        2. Liberation Sans (Linux)
-        3. Arial Unicode (macOS)
-        4. Arial (Windows)
+        1. Bundled DejaVu Sans (in fonts/ directory)
+        2. DejaVu Sans (Linux system paths)
+        3. Liberation Sans (Linux)
+        4. Arial Unicode (macOS)
+        5. Arial (Windows)
 
         Falls back to Helvetica if no fonts are found.
+        WARNING: Helvetica does NOT support Cyrillic characters!
         """
+        # Bundled font path (highest priority)
+        bundled_font = os.path.join(os.path.dirname(__file__), '..', 'fonts', 'DejaVuSans.ttf')
+
         # Try to register DejaVu Sans (common on Linux)
         font_paths = [
+            bundled_font,  # Bundled font (failsafe)
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
             '/usr/share/fonts/dejavu/DejaVuSans.ttf',
             '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
@@ -59,15 +65,28 @@ class DocumentBuilder:
         ]
 
         self.font_name = 'Helvetica'  # Default fallback
+        font_found = False
 
+        print("DEBUG: Setting up fonts for Cyrillic support...")
         for font_path in font_paths:
+            print(f"DEBUG: Checking font path: {font_path}")
             if os.path.exists(font_path):
                 try:
                     pdfmetrics.registerFont(TTFont('DejaVuSans', font_path))
                     self.font_name = 'DejaVuSans'
+                    font_found = True
+                    print(f"DEBUG: Successfully registered font from: {font_path}")
                     break
-                except Exception:
+                except Exception as e:
+                    print(f"DEBUG: Failed to register font {font_path}: {e}")
                     continue
+
+        if not font_found:
+            print("=" * 60)
+            print("WARNING: No Cyrillic-compatible font found!")
+            print("WARNING: Using Helvetica fallback - Cyrillic text will NOT render correctly!")
+            print("WARNING: Install fonts-dejavu-core or add DejaVuSans.ttf to fonts/ directory")
+            print("=" * 60)
 
         # Create custom styles
         self.body_style = ParagraphStyle(
