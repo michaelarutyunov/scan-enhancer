@@ -409,22 +409,44 @@ class DocumentBuilder:
         Render an image block at exact position.
 
         Args:
-            block: Block data with image path in lines/spans
+            block: Block data with image path in lines/spans or blocks/lines/spans
             x, y, width, height: Position and size in ReportLab coordinates
         """
         # Find image path in the block structure
+        # Image blocks can have structure: blocks[] -> lines[] -> spans[] -> image_path
+        # OR directly: lines[] -> spans[] -> image_path
         image_path = None
-        lines = block.get("lines", [])
-        for line in lines:
-            spans = line.get("spans", [])
-            for span in spans:
-                if span.get("type") == "image":
-                    image_path = span.get("image_path")
+
+        # Try nested blocks structure first (for image blocks)
+        blocks = block.get("blocks", [])
+        if blocks:
+            for sub_block in blocks:
+                lines = sub_block.get("lines", [])
+                for line in lines:
+                    spans = line.get("spans", [])
+                    for span in spans:
+                        if span.get("type") == "image":
+                            image_path = span.get("image_path")
+                            break
+                    if image_path:
+                        break
+                if image_path:
                     break
-            if image_path:
-                break
+
+        # Try direct lines structure (fallback)
+        if not image_path:
+            lines = block.get("lines", [])
+            for line in lines:
+                spans = line.get("spans", [])
+                for span in spans:
+                    if span.get("type") == "image":
+                        image_path = span.get("image_path")
+                        break
+                if image_path:
+                    break
 
         if not image_path:
+            print(f"Warning: Image block has no image_path")
             return
 
         # Construct full path
@@ -436,10 +458,13 @@ class DocumentBuilder:
 
             if os.path.exists(full_path):
                 try:
+                    print(f"DEBUG: Drawing image at ({x}, {y}) size ({width}x{height}): {image_path}")
                     self._canvas.drawImage(full_path, x, y, width=width, height=height,
                                           preserveAspectRatio=True, anchor='sw')
                 except Exception as e:
                     print(f"Warning: Could not draw image {full_path}: {e}")
+            else:
+                print(f"Warning: Image file not found: {full_path}")
 
     def finalize_layout(self):
         """
