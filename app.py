@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.mineru_processor import MinerUAPIProcessor
-from src.document_builder import create_pdf_from_mineru
+from src.document_builder import create_pdf_from_mineru, create_pdf_from_layout
 from src.utils import validate_pdf_path, check_file_size_limit, clean_filename
 
 # Initialize MinerU API processor
@@ -91,18 +91,29 @@ def process_pdf(
             # Get the parsed content
             temp_dir = result.get("temp_dir")
             zip_path = result.get("zip_path")
+            layout_data = result.get("layout_data")  # For exact positioning
 
             # Create output filename
             base_name = clean_filename(os.path.basename(pdf_path))
             output_path = f"{base_name}_cleaned.pdf"
 
             # Build PDF from MinerU output
-            create_pdf_from_mineru(
-                output_path=output_path,
-                content=result_data,
-                content_type=output_format,
-                temp_dir=temp_dir
-            )
+            # Prefer layout.json for exact positioning (matches original page layout)
+            if layout_data:
+                print("DEBUG: Using layout.json for exact positioning")
+                create_pdf_from_layout(
+                    output_path=output_path,
+                    layout_data=layout_data,
+                    temp_dir=temp_dir
+                )
+            else:
+                print("DEBUG: Using content_list.json (layout.json not available)")
+                create_pdf_from_mineru(
+                    output_path=output_path,
+                    content=result_data,
+                    content_type=output_format,
+                    temp_dir=temp_dir
+                )
 
             progress(1.0, desc="Complete!")
 

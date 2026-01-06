@@ -282,9 +282,16 @@ class MinerUAPIProcessor:
 
                     # Determine which file to use based on output format
                     content_file = None
+                    layout_file = None
+
+                    # Always look for layout.json for exact positioning
+                    for f in zip_files:
+                        if f == 'layout.json' or f.endswith('/layout.json'):
+                            layout_file = f
+                            break
 
                     if output_format == "json":
-                        # For JSON format, look for content_list.json first
+                        # For JSON format, look for content_list.json as fallback
                         for f in zip_files:
                             if 'content_list' in f and f.endswith('.json'):
                                 content_file = f
@@ -304,7 +311,7 @@ class MinerUAPIProcessor:
                                 content_file = f
                                 break
 
-                    if not content_file:
+                    if not content_file and not layout_file:
                         return {
                             "task_id": task_id,
                             "status": "failed",
@@ -312,56 +319,83 @@ class MinerUAPIProcessor:
                         }
 
                     print(f"DEBUG: Content file: {content_file}")
-                    content_path = os.path.join(temp_dir, content_file)
-                    with open(content_path, 'rb') as f:
-                        content_bytes = f.read()
+                    print(f"DEBUG: Layout file: {layout_file}")
 
-                    print(f"DEBUG: Content size: {len(content_bytes)} bytes")
-
-                    # Parse based on file extension
-                    if content_file.endswith('.json'):
-                        # Parse JSON content
+                    # Parse layout.json if available (for exact positioning)
+                    layout_data = None
+                    if layout_file:
+                        layout_path = os.path.join(temp_dir, layout_file)
                         try:
-                            content_text = content_bytes.decode('utf-8')
-                            if not content_text.strip():
-                                return {
-                                    "task_id": task_id,
-                                    "status": "failed",
-                                    "result": {"error": "Content file is empty"},
-                                    "zip_path": zip_path
-                                }
+                            with open(layout_path, 'r', encoding='utf-8') as f:
+                                layout_data = json.load(f)
+                            print(f"DEBUG: Loaded layout.json with {len(layout_data.get('pdf_info', []))} pages")
+                        except Exception as e:
+                            print(f"Warning: Could not parse layout.json: {e}")
+                            layout_data = None
+
+                    # Parse content file
+                    content = None
+                    if content_file:
+                        content_path = os.path.join(temp_dir, content_file)
+                        with open(content_path, 'rb') as f:
+                            content_bytes = f.read()
+
+                        print(f"DEBUG: Content size: {len(content_bytes)} bytes")
+
+                        # Parse based on file extension
+                        if content_file.endswith('.json'):
+                            # Parse JSON content
+                            try:
+                                content_text = content_bytes.decode('utf-8')
+                                if not content_text.strip():
+                                    if not layout_data:
+                                        return {
+                                            "task_id": task_id,
+                                            "status": "failed",
+                                            "result": {"error": "Content file is empty"},
+                                            "zip_path": zip_path
+                                        }
+                                else:
+                                    # Log raw MinerU output for debugging
+                                    print("=" * 60)
+                                    print("DEBUG: RAW MINERU OUTPUT (first 500 chars):")
+                                    print(content_text[:500])
+                                    print("=" * 60)
+
+                                    content = json.loads(content_text)
+                            except json.JSONDecodeError as je:
+                                if not layout_data:
+                                    return {
+                                        "task_id": task_id,
+                                        "status": "failed",
+                                        "result": {"error": f"Invalid JSON: {str(je)}. First 200 chars: {content_text[:200]}"},
+                                        "zip_path": zip_path
+                                    }
+                                print(f"Warning: Could not parse content_list.json: {je}")
+                        else:
+                            # Treat as markdown/text
+                            content = content_bytes.decode('utf-8')
 
                             # Log raw MinerU output for debugging
                             print("=" * 60)
                             print("DEBUG: RAW MINERU OUTPUT (first 500 chars):")
-                            print(content_text[:500])
+                            print(content[:500])
                             print("=" * 60)
 
-                            content = json.loads(content_text)
-                        except json.JSONDecodeError as je:
-                            return {
-                                "task_id": task_id,
-                                "status": "failed",
-                                "result": {"error": f"Invalid JSON: {str(je)}. First 200 chars: {content_text[:200]}"},
-                                "zip_path": zip_path
-                            }
-                    else:
-                        # Treat as markdown/text
-                        content = content_bytes.decode('utf-8')
-
-                        # Log raw MinerU output for debugging
-                        print("=" * 60)
-                        print("DEBUG: RAW MINERU OUTPUT (first 500 chars):")
-                        print(content[:500])
-                        print("=" * 60)
-
-                    return {
+                    # Return result with layout_data for exact positioning
+                    result = {
                         "task_id": task_id,
                         "status": "completed",
                         "result": content,
                         "temp_dir": temp_dir,  # Pass temp dir for image access
                         "zip_path": zip_path   # Pass ZIP path for diagnostic download
                     }
+
+                    # Add layout_data if available (preferred for exact positioning)
+                    if layout_data:
+                        result["layout_data"] = layout_data
+
+                    return result
 
             except Exception as e:
                 import traceback

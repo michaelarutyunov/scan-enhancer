@@ -7,12 +7,13 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
+from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER, TA_LEFT
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
-from typing import Dict, List, Any
+from reportlab.pdfgen import canvas as pdfcanvas
+from typing import Dict, List, Any, Tuple
 import os
 import tempfile
 
@@ -253,6 +254,202 @@ class DocumentBuilder:
             markdown_text: Markdown content from MinerU
         """
         self._add_markdown_text(markdown_text)
+
+    def add_from_layout_json(self, layout_data: Dict):
+        """
+        Build PDF from MinerU layout.json with exact positioning.
+
+        Uses canvas-based rendering to place elements at their exact
+        bbox coordinates, matching the original PDF layout precisely.
+
+        Args:
+            layout_data: Parsed layout.json content with pdf_info array
+        """
+        pdf_info = layout_data.get("pdf_info", [])
+        if not pdf_info:
+            print("Warning: No pdf_info in layout data")
+            return
+
+        # Create canvas for direct drawing
+        self._canvas = pdfcanvas.Canvas(self.output_path)
+
+        # Process each page
+        for page_data in pdf_info:
+            page_idx = page_data.get("page_idx", 0)
+            page_size = page_data.get("page_size", [612, 792])  # Default US Letter
+            page_width, page_height = page_size
+
+            # Set page size
+            self._canvas.setPageSize((page_width, page_height))
+
+            # Process content blocks (preproc_blocks)
+            preproc_blocks = page_data.get("preproc_blocks", [])
+            for block in preproc_blocks:
+                self._render_block(block, page_height)
+
+            # Process discarded blocks (page numbers, etc.)
+            discarded_blocks = page_data.get("discarded_blocks", [])
+            for block in discarded_blocks:
+                self._render_block(block, page_height, is_discarded=True)
+
+            # Move to next page
+            self._canvas.showPage()
+
+        # Save the document
+        self._canvas.save()
+        self._canvas = None
+
+    def _render_block(self, block: Dict, page_height: float, is_discarded: bool = False):
+        """
+        Render a single block at its exact position.
+
+        Args:
+            block: Block data with type, bbox, and lines
+            page_height: Height of the page for coordinate conversion
+            is_discarded: Whether this is a discarded block (page number)
+        """
+        block_type = block.get("type", "text")
+        bbox = block.get("bbox", [0, 0, 100, 20])
+
+        # Convert bbox coordinates from MinerU (top-left origin) to ReportLab (bottom-left origin)
+        x, y, width, height = self._convert_bbox(bbox, page_height)
+
+        if block_type == "image":
+            self._render_image_block(block, x, y, width, height)
+        else:
+            # Text, title, or discarded
+            self._render_text_block(block, x, y, width, height, block_type, is_discarded)
+
+    def _convert_bbox(self, bbox: List[float], page_height: float) -> Tuple[float, float, float, float]:
+        """
+        Convert MinerU bbox to ReportLab coordinates.
+
+        MinerU bbox: [x1, y1, x2, y2] with origin at top-left
+        ReportLab: origin at bottom-left
+
+        Args:
+            bbox: [x1, y1, x2, y2] coordinates
+            page_height: Height of the page
+
+        Returns:
+            (x, y, width, height) in ReportLab coordinates
+        """
+        x1, y1, x2, y2 = bbox
+        width = x2 - x1
+        height = y2 - y1
+
+        # Convert y coordinate: ReportLab y = page_height - MinerU y2 (bottom of block)
+        rl_y = page_height - y2
+
+        return x1, rl_y, width, height
+
+    def _render_text_block(self, block: Dict, x: float, y: float, width: float, height: float,
+                           block_type: str, is_discarded: bool):
+        """
+        Render a text block at exact position using Paragraph.drawOn().
+
+        Args:
+            block: Block data with lines containing spans
+            x, y, width, height: Position and size in ReportLab coordinates
+            block_type: "text", "title", or "discarded"
+            is_discarded: Whether this is a discarded block
+        """
+        # Extract text from lines/spans structure
+        text = self._extract_text_from_block(block)
+        if not text.strip():
+            return
+
+        # Choose style based on block type
+        if block_type == "title":
+            style = self.body_style_bold
+        else:
+            style = self.body_style
+
+        # Create paragraph and render at exact position
+        try:
+            # Clean text for ReportLab (escape special characters)
+            clean_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+            para = Paragraph(clean_text, style)
+            para_width, para_height = para.wrap(width, height)
+
+            # Draw at exact position
+            para.drawOn(self._canvas, x, y)
+
+        except Exception as e:
+            # Fallback to simple drawString if Paragraph fails
+            print(f"Warning: Paragraph failed for '{text[:50]}...': {e}")
+            self._canvas.setFont(self.font_name, 11)
+            self._canvas.drawString(x, y + height - 11, text[:100])  # Approximate position
+
+    def _extract_text_from_block(self, block: Dict) -> str:
+        """
+        Extract text content from block's lines/spans structure.
+
+        Args:
+            block: Block with lines array containing spans
+
+        Returns:
+            Combined text from all spans
+        """
+        lines = block.get("lines", [])
+        text_parts = []
+
+        for line in lines:
+            spans = line.get("spans", [])
+            for span in spans:
+                content = span.get("content", "")
+                if content:
+                    text_parts.append(content)
+
+        return " ".join(text_parts)
+
+    def _render_image_block(self, block: Dict, x: float, y: float, width: float, height: float):
+        """
+        Render an image block at exact position.
+
+        Args:
+            block: Block data with image path in lines/spans
+            x, y, width, height: Position and size in ReportLab coordinates
+        """
+        # Find image path in the block structure
+        image_path = None
+        lines = block.get("lines", [])
+        for line in lines:
+            spans = line.get("spans", [])
+            for span in spans:
+                if span.get("type") == "image":
+                    image_path = span.get("image_path")
+                    break
+            if image_path:
+                break
+
+        if not image_path:
+            return
+
+        # Construct full path
+        if self.temp_dir:
+            full_path = os.path.join(self.temp_dir, "images", image_path)
+            if not os.path.exists(full_path):
+                # Try without images/ prefix
+                full_path = os.path.join(self.temp_dir, image_path)
+
+            if os.path.exists(full_path):
+                try:
+                    self._canvas.drawImage(full_path, x, y, width=width, height=height,
+                                          preserveAspectRatio=True, anchor='sw')
+                except Exception as e:
+                    print(f"Warning: Could not draw image {full_path}: {e}")
+
+    def finalize_layout(self):
+        """
+        Finalize document when using layout-based rendering.
+
+        Note: For layout.json rendering, the document is saved in add_from_layout_json().
+        This method is kept for compatibility but does nothing when canvas rendering is used.
+        """
+        # Layout rendering saves in add_from_layout_json()
+        pass
 
     def _add_text_block(self, text: str, style=None, spacer_after=0.2):
         """
@@ -583,4 +780,29 @@ def create_pdf_from_mineru(
             builder.add_from_mineru_markdown(text)
 
     builder.finalize()
+    return output_path
+
+
+def create_pdf_from_layout(
+    output_path: str,
+    layout_data: Dict,
+    temp_dir: str = None
+) -> str:
+    """
+    Create PDF from MinerU layout.json with exact positioning.
+
+    This method uses canvas-based rendering to place elements at their
+    exact bbox coordinates, matching the original PDF layout precisely.
+
+    Args:
+        output_path: Where to save the PDF
+        layout_data: Parsed layout.json content with pdf_info array
+        temp_dir: Temporary directory containing extracted images
+
+    Returns:
+        Path to created document
+    """
+    builder = DocumentBuilder(output_path, temp_dir=temp_dir)
+    builder.add_from_layout_json(layout_data)
+    # Note: add_from_layout_json() saves the document directly
     return output_path

@@ -209,3 +209,7 @@ __marimo__/
 # Custom
 interim/
 fonts/
+learnings.md
+reference_links.md
+TROUBLESHOOTING.md
+test_cyrillic.py

@@ -149,3 +149,37 @@ Even with reduced spacers (1.4cm total), the cumulative content height can excee
 
 ### Discarded Items
 MinerU marks page numbers as `type="discarded"` with the page number as text content (e.g., "62", "63"). These appear at the end of each page's content in the sequence, and their `bbox` coordinates show they're positioned at the bottom of the page.
+
+## 12. Solution: Exact Positioning with layout.json
+
+### The Fix
+Instead of using `content_list.json` (flattened) with ReportLab's flowable-based rendering, use `layout.json` with **canvas-based absolute positioning**:
+
+1. **Switch data source**: `layout.json` has explicit page-level structure with `pdf_info` array
+2. **Use canvas rendering**: Replace `SimpleDocTemplate` with `pdfgen.Canvas` for direct drawing
+3. **Exact coordinates**: Use `Paragraph.drawOn(canvas, x, y)` to place text at bbox positions
+
+### Coordinate Conversion
+MinerU bbox uses top-left origin; ReportLab uses bottom-left:
+```python
+def _convert_bbox(bbox, page_height):
+    x1, y1, x2, y2 = bbox
+    width = x2 - x1
+    height = y2 - y1
+    # ReportLab y = page_height - MinerU y2 (bottom of block)
+    rl_y = page_height - y2
+    return x1, rl_y, width, height
+```
+
+### Implementation Files
+- **document_builder.py**: Added `add_from_layout_json()` method with canvas rendering
+- **mineru_processor.py**: Now returns `layout_data` in result when `layout.json` exists
+- **app.py**: Uses `create_pdf_from_layout()` when `layout_data` is available
+
+### Key Methods Added
+- `add_from_layout_json(layout_data)`: Main entry point for layout-based rendering
+- `_render_block(block, page_height)`: Renders individual blocks at exact positions
+- `_convert_bbox(bbox, page_height)`: Converts MinerU to ReportLab coordinates
+- `_render_text_block()`: Renders text using `Paragraph.drawOn()`
+- `_render_image_block()`: Renders images using `canvas.drawImage()`
+- `_extract_text_from_block()`: Extracts text from lines/spans structure
