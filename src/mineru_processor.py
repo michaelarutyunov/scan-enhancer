@@ -73,7 +73,7 @@ class MinerUAPIProcessor:
         # Step 1: Get upload URL from file-urls/batch endpoint
         batch_url = f"{self.API_BASE_URL}/file-urls/batch"
         batch_data = {
-            "model_version": "vlm",
+            "model_version": "pipeline",  # Use pipeline for better multi-language support (Russian, etc.)
             "language": language,
             "files": [{
                 "name": pdf_file.name,
