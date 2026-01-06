@@ -68,9 +68,10 @@ class MinerUAPIProcessor:
         # Step 1: Get upload URL from file-urls/batch endpoint
         batch_url = f"{self.API_BASE_URL}/file-urls/batch"
         batch_data = {
-            "urls": [{
-                "filename": pdf_file.name,
-                "file_size": pdf_file.stat().st_size
+            "model_version": "vlm",
+            "files": [{
+                "name": pdf_file.name,
+                "data_id": pdf_file.stem  # Use filename without extension as data_id
             }]
         }
 
@@ -87,7 +88,7 @@ class MinerUAPIProcessor:
         if batch_result.get("code") != 0:
             raise ValueError(f"Failed to get upload URL: {batch_result}")
 
-        upload_info = batch_result.get("data", {}).get("urls", [{}])[0]
+        upload_info = batch_result.get("data", {}).get("files", [{}])[0]
         upload_url = upload_info.get("upload_url")
         task_id = upload_info.get("task_id")
 
