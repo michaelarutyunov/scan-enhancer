@@ -192,13 +192,18 @@ class DocumentBuilder:
 
         for item in items:
             item_type = item.get("type", "")
+            page_idx = item.get("page_idx")
 
             # Check for page break using page_idx field
-            page_idx = item.get("page_idx")
+            # Insert break BEFORE processing first item of new page
+            # This ensures page numbers (discarded items) stay on their original page
             if page_idx is not None and current_page_idx is not None and page_idx != current_page_idx:
-                # Page changed, insert a page break
+                # Page changed, insert a page break before adding this item
                 self.story.append(PageBreak())
-            current_page_idx = page_idx if page_idx is not None else current_page_idx
+
+            # Update current page tracker
+            if page_idx is not None:
+                current_page_idx = page_idx
 
             if item_type == "text":
                 text = item.get("text", "")
