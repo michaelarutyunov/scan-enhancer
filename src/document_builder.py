@@ -393,9 +393,9 @@ class DocumentBuilder:
 
         Thresholds (4 wider buckets for stability):
         - < 18 units  → 9pt  (footnotes, page numbers, smallest text)
-        - 18-23 units → 11pt (main body text, questions, proverbs)
-        - 23-28 units → 12pt (section headers like "Литовские", "Немецкие")
-        - > 28 units  → 14pt (main title or very large headers)
+        - 18-24 units → 11pt (main body text, questions, proverbs)
+        - 24-30 units → 12pt (section headers like "Литовские", "Немецкие")
+        - > 30 units  → 14pt (main title or very large headers)
 
         Args:
             bbox_height: Raw bbox height from layout.json (y2 - y1)
@@ -405,9 +405,9 @@ class DocumentBuilder:
         """
         if bbox_height < 18:
             return 9
-        elif bbox_height < 23:
+        elif bbox_height < 24:
             return 11
-        elif bbox_height < 28:
+        elif bbox_height < 30:
             return 12
         else:
             return 14
