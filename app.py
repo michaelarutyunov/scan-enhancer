@@ -109,10 +109,7 @@ def process_pdf(
 
 
 # Create Gradio interface
-with gr.Blocks(
-    title="PDF Document Cleaner",
-    theme=gr.themes.Soft()
-) as app:
+with gr.Blocks(title="PDF Document Cleaner") as app:
     gr.Markdown("""
     # 📚 PDF Document Cleaner
 
