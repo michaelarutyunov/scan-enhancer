@@ -5,6 +5,9 @@ Handles communication with MinerU API for PDF parsing.
 import os
 import time
 import requests
+import zipfile
+import io
+import json
 from typing import Dict, Optional, Literal
 from pathlib import Path
 
@@ -210,14 +213,14 @@ class MinerUAPIProcessor:
         """
         Complete workflow: submit, poll, and get result.
 
-        For batch file uploads, returns the extract_result from the batch response.
+        For batch file uploads, downloads and extracts the ZIP file content.
 
         Args:
             pdf_path: Path to the PDF file
             output_format: "json" or "markdown"
 
         Returns:
-            Dict with task_id, status ("completed"/"failed"), and result data
+            Dict with task_id, status ("completed"/"failed"), and parsed content
         """
         task_id = self.submit_task(pdf_path, output_format)
         result = self.poll_task(task_id)
@@ -230,14 +233,72 @@ class MinerUAPIProcessor:
             first_result = extract_results[0]
             state = first_result.get("state", "")
 
-            # Map batch state to legacy status for backward compatibility
-            status = "completed" if state == "done" else state
+            if state != "done":
+                # Map batch state to legacy status for backward compatibility
+                status = state if state else "unknown"
+                return {
+                    "task_id": task_id,
+                    "status": status,
+                    "result": first_result
+                }
 
-            return {
-                "task_id": task_id,
-                "status": status,
-                "result": first_result
-            }
+            # Download and extract the ZIP file content
+            full_zip_url = first_result.get("full_zip_url")
+            if not full_zip_url:
+                return {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "result": {"error": "No full_zip_url in response"}
+                }
+
+            try:
+                # Download the ZIP file
+                zip_response = requests.get(full_zip_url, timeout=60)
+                zip_response.raise_for_status()
+
+                # Extract content from ZIP
+                with zipfile.ZipFile(io.BytesIO(zip_response.content)) as zip_ref:
+                    # Find the content file (usually the first file, or named after original)
+                    zip_files = zip_ref.namelist()
+
+                    # Get the first file that's not a directory
+                    content_file = None
+                    for f in zip_files:
+                        if not f.endswith('/') and f:
+                            content_file = f
+                            break
+
+                    if not content_file:
+                        return {
+                            "task_id": task_id,
+                            "status": "failed",
+                            "result": {"error": "No content file found in ZIP"}
+                        }
+
+                    # Read the content
+                    with zip_ref.open(content_file) as f:
+                        content_bytes = f.read()
+
+                    # Parse based on output format
+                    if output_format == "json":
+                        # Parse JSON content
+                        content = json.loads(content_bytes.decode('utf-8'))
+                    else:
+                        # Markdown content as string
+                        content = content_bytes.decode('utf-8')
+
+                    return {
+                        "task_id": task_id,
+                        "status": "completed",
+                        "result": content
+                    }
+
+            except Exception as e:
+                return {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "result": {"error": f"Failed to download/extract ZIP: {str(e)}"}
+                }
         else:
             return {
                 "task_id": task_id,
