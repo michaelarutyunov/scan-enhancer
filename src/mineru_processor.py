@@ -270,16 +270,33 @@ class MinerUAPIProcessor:
                     # Extract all files to temp directory
                     zip_ref.extractall(temp_dir)
 
-                    # Find the content file (usually the first file, or named after original)
+                    # Find the content file
                     zip_files = zip_ref.namelist()
                     print(f"DEBUG: ZIP files: {zip_files}")
 
-                    # Get the first file that's not a directory or in images folder
+                    # Determine which file to use based on output format
                     content_file = None
-                    for f in zip_files:
-                        if not f.endswith('/') and not f.startswith('images/'):
-                            content_file = f
-                            break
+
+                    if output_format == "json":
+                        # For JSON format, look for content_list.json first
+                        for f in zip_files:
+                            if 'content_list' in f and f.endswith('.json'):
+                                content_file = f
+                                break
+
+                    # If no JSON file found, or markdown requested, look for markdown
+                    if not content_file:
+                        for f in zip_files:
+                            if f == 'full.md' or f.endswith('.md'):
+                                content_file = f
+                                break
+
+                    # Fallback: first non-image, non-directory file
+                    if not content_file:
+                        for f in zip_files:
+                            if not f.endswith('/') and not f.startswith('images/'):
+                                content_file = f
+                                break
 
                     if not content_file:
                         return {
@@ -289,16 +306,14 @@ class MinerUAPIProcessor:
                         }
 
                     print(f"DEBUG: Content file: {content_file}")
-                    # Read the content
                     content_path = os.path.join(temp_dir, content_file)
                     with open(content_path, 'rb') as f:
                         content_bytes = f.read()
 
                     print(f"DEBUG: Content size: {len(content_bytes)} bytes")
-                    print(f"DEBUG: First 100 bytes: {content_bytes[:100]}")
 
-                    # Parse based on output format
-                    if output_format == "json":
+                    # Parse based on file extension
+                    if content_file.endswith('.json'):
                         # Parse JSON content
                         try:
                             content_text = content_bytes.decode('utf-8')
@@ -313,10 +328,10 @@ class MinerUAPIProcessor:
                             return {
                                 "task_id": task_id,
                                 "status": "failed",
-                                "result": {"error": f"Invalid JSON in content file: {str(je)}. First 200 chars: {content_text[:200]}"}
+                                "result": {"error": f"Invalid JSON: {str(je)}. First 200 chars: {content_text[:200]}"}
                             }
                     else:
-                        # Markdown content as string
+                        # Treat as markdown/text
                         content = content_bytes.decode('utf-8')
 
                     return {
