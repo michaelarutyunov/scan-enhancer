@@ -319,8 +319,8 @@ class DocumentBuilder:
         if block_type == "image":
             self._render_image_block(block, x, y, width, height)
         else:
-            # Text, title, or discarded
-            self._render_text_block(block, x, y, width, height, block_type, is_discarded)
+            # Text, title, or discarded - pass page_height for line positioning
+            self._render_text_block(block, x, y, width, height, block_type, is_discarded, page_height)
 
     def _convert_bbox(self, bbox: List[float], page_height: float) -> Tuple[float, float, float, float]:
         """
@@ -346,15 +346,16 @@ class DocumentBuilder:
         return x1, rl_y, width, height
 
     def _render_text_block(self, block: Dict, x: float, y: float, width: float, height: float,
-                           block_type: str, is_discarded: bool):
+                           block_type: str, is_discarded: bool, page_height: float):
         """
-        Render a text block at exact position, preserving line breaks.
+        Render a text block at exact position, preserving line breaks and original spacing.
 
         Args:
             block: Block data with lines containing spans
             x, y, width, height: Position and size in ReportLab coordinates
             block_type: "text", "title", or "discarded"
             is_discarded: Whether this is a discarded block
+            page_height: Height of the page for coordinate conversion
         """
         # Extract text lines preserving structure
         text_lines = self._extract_text_lines_from_block(block)
@@ -367,29 +368,35 @@ class DocumentBuilder:
         else:
             style = self.body_style
 
-        # Render each line at its position
+        # Get line data for accurate positioning
+        lines_data = block.get("lines", [])
+
         try:
-            lines_data = block.get("lines", [])
-            line_height = 14  # Approximate line height in points
-
             for i, text_line in enumerate(text_lines):
-                # Get y-offset for this line (position from original)
-                if i < len(lines_data):
-                    line_bbox = lines_data[i].get("bbox", [0, 0, 0, 0])
-                    # Calculate relative position within block
-                    if len(line_bbox) >= 4:
-                        # Use the line's y position relative to block
-                        # But we need to render within the block's space
-                        pass
-
                 # Clean text for ReportLab
                 clean_text = text_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-                para = Paragraph(clean_text, style)
-                para_width, para_height = para.wrap(width, line_height)
+                # Get the actual y-coordinate from the original line's bbox
+                if i < len(lines_data):
+                    line_bbox = lines_data[i].get("bbox", [0, 0, 0, 0])
+                    # Use actual y-coordinate from layout (top-left origin)
+                    # Convert to ReportLab coordinates (bottom-left origin)
+                    if len(line_bbox) >= 4:
+                        # The bbox's y1 is the top of the line in MinerU coords
+                        # In ReportLab: y = page_height - line_top
+                        line_y = page_height - line_bbox[1]
+                    else:
+                        # Fallback to calculated position
+                        line_y = y + height - ((i + 1) * 14)
+                else:
+                    # Fallback to calculated position
+                    line_y = y + height - ((i + 1) * 14)
 
-                # Position each line vertically within the block
-                line_y = y + height - ((i + 1) * line_height)
+                # Create paragraph and wrap it
+                para = Paragraph(clean_text, style)
+                para_width, para_height = para.wrap(width, height)
+
+                # Draw at exact original position
                 para.drawOn(self._canvas, x, line_y)
 
         except Exception as e:
@@ -398,7 +405,14 @@ class DocumentBuilder:
             self._canvas.setFont(self.font_name, 11)
             # Render all lines as fallback
             for i, text_line in enumerate(text_lines):
-                line_y = y + height - ((i + 1) * 14)
+                if i < len(lines_data):
+                    line_bbox = lines_data[i].get("bbox", [0, 0, 0, 0])
+                    if len(line_bbox) >= 4:
+                        line_y = page_height - line_bbox[1]
+                    else:
+                        line_y = y + height - ((i + 1) * 14)
+                else:
+                    line_y = y + height - ((i + 1) * 14)
                 self._canvas.drawString(x, line_y, text_line[:80])
 
     def _extract_text_lines_from_block(self, block: Dict) -> list:
