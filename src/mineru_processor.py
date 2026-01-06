@@ -256,15 +256,22 @@ class MinerUAPIProcessor:
                 zip_response = requests.get(full_zip_url, timeout=60)
                 zip_response.raise_for_status()
 
+                # Create a temporary directory for extracted files
+                import tempfile
+                temp_dir = tempfile.mkdtemp(prefix="mineru_")
+
                 # Extract content from ZIP
                 with zipfile.ZipFile(io.BytesIO(zip_response.content)) as zip_ref:
+                    # Extract all files to temp directory
+                    zip_ref.extractall(temp_dir)
+
                     # Find the content file (usually the first file, or named after original)
                     zip_files = zip_ref.namelist()
 
-                    # Get the first file that's not a directory
+                    # Get the first file that's not a directory or in images folder
                     content_file = None
                     for f in zip_files:
-                        if not f.endswith('/') and f:
+                        if not f.endswith('/') and not f.startswith('images/'):
                             content_file = f
                             break
 
@@ -276,7 +283,8 @@ class MinerUAPIProcessor:
                         }
 
                     # Read the content
-                    with zip_ref.open(content_file) as f:
+                    content_path = os.path.join(temp_dir, content_file)
+                    with open(content_path, 'rb') as f:
                         content_bytes = f.read()
 
                     # Parse based on output format
@@ -290,7 +298,8 @@ class MinerUAPIProcessor:
                     return {
                         "task_id": task_id,
                         "status": "completed",
-                        "result": content
+                        "result": content,
+                        "temp_dir": temp_dir  # Pass temp dir for image access
                     }
 
             except Exception as e:

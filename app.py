@@ -85,6 +85,7 @@ def process_pdf(
 
             # Get the parsed content
             result_data = result.get("result", {})
+            temp_dir = result.get("temp_dir")
 
             # Create output filename
             base_name = clean_filename(os.path.basename(pdf_path))
@@ -94,7 +95,8 @@ def process_pdf(
             create_pdf_from_mineru(
                 output_path=output_path,
                 content=result_data,
-                content_type=output_format
+                content_type=output_format,
+                temp_dir=temp_dir
             )
 
             progress(1.0, desc="Complete!")

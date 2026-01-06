@@ -20,14 +20,16 @@ import tempfile
 class DocumentBuilder:
     """Build PDF document from MinerU structured output."""
 
-    def __init__(self, output_path: str):
+    def __init__(self, output_path: str, temp_dir: str = None):
         """
         Initialize document builder.
 
         Args:
             output_path: Where to save the final PDF
+            temp_dir: Optional temporary directory containing extracted images
         """
         self.output_path = output_path
+        self.temp_dir = temp_dir
         self.story = []
         self.styles = getSampleStyleSheet()
         self.temp_files = []
@@ -195,34 +197,51 @@ class DocumentBuilder:
 
     def _add_image(self, item: Dict):
         """Add an image from MinerU output."""
-        # MinerU may provide image data or path
+        # MinerU may provide: img_path (relative path in temp_dir) or image (base64/URL)
+        img_path = item.get("img_path")
         img_data = item.get("image")
-        caption = item.get("caption", "")
+        # Handle both caption and image_caption fields
+        caption = item.get("image_caption") or item.get("caption", "")
 
-        if not img_data:
-            return
+        tmp_path = None
 
         try:
-            # If image is base64 encoded
-            if isinstance(img_data, str) and img_data.startswith("data:image"):
-                import base64
-                header, data = img_data.split(",", 1)
-                img_bytes = base64.b64decode(data)
+            # Prefer img_path if available (MinerU batch format)
+            if img_path and self.temp_dir:
+                # img_path is relative like "images/xxx.jpg"
+                full_path = os.path.join(self.temp_dir, img_path)
+                if os.path.exists(full_path):
+                    tmp_path = full_path
+                else:
+                    print(f"Warning: Image not found at {full_path}")
+                    return
+            elif img_data:
+                # Fallback to original image field (base64 or URL)
+                # If image is base64 encoded
+                if isinstance(img_data, str) and img_data.startswith("data:image"):
+                    import base64
+                    header, data = img_data.split(",", 1)
+                    img_bytes = base64.b64decode(data)
 
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                    tmp.write(img_bytes)
-                    tmp_path = tmp.name
-            # If image is a path/URL
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                        tmp.write(img_bytes)
+                        tmp_path = tmp.name
+                # If image is a path/URL
+                else:
+                    import requests
+                    response = requests.get(img_data, timeout=30)
+                    response.raise_for_status()
+
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                        tmp.write(response.content)
+                        tmp_path = tmp.name
+
+                self.temp_files.append(tmp_path)
             else:
-                import requests
-                response = requests.get(img_data, timeout=30)
-                response.raise_for_status()
+                return
 
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                    tmp.write(response.content)
-                    tmp_path = tmp.name
-
-            self.temp_files.append(tmp_path)
+            if not tmp_path:
+                return
 
             # Add image to PDF (scale to fit)
             from reportlab.platypus import Image as RLImage
@@ -366,7 +385,8 @@ class DocumentBuilder:
 def create_pdf_from_mineru(
     output_path: str,
     content: Any,
-    content_type: str = "json"
+    content_type: str = "json",
+    temp_dir: str = None
 ) -> str:
     """
     Helper function to create PDF from MinerU output.
@@ -375,11 +395,12 @@ def create_pdf_from_mineru(
         output_path: Where to save the PDF
         content: MinerU JSON or Markdown content
         content_type: "json" or "markdown"
+        temp_dir: Optional temporary directory containing extracted images
 
     Returns:
         Path to created document
     """
-    builder = DocumentBuilder(output_path)
+    builder = DocumentBuilder(output_path, temp_dir=temp_dir)
 
     if content_type == "json":
         builder.add_from_mineru_json(content)
