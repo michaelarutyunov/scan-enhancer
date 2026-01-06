@@ -3,13 +3,14 @@
 HuggingFace Spaces application for processing scanned PDFs using MinerU API.
 """
 import sys
+import os
 from pathlib import Path
 
-# Add current directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add current directory to path for imports (for HuggingFace Spaces)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.getcwd())
 
 import gradio as gr
-import os
 from dotenv import load_dotenv
 
 # Load environment variables
