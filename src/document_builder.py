@@ -392,6 +392,10 @@ class DocumentBuilder:
         """
         Render a text block at exact position, preserving line breaks and original spacing.
 
+        Calculates font size dynamically from bbox height using calibrated ratio:
+        - Baseline: 23 bbox units = 12pt font
+        - Ratio: 12/23 ≈ 0.52
+
         Args:
             block: Block data with lines containing spans
             x, y, width, height: Position and size in ReportLab coordinates
@@ -404,32 +408,59 @@ class DocumentBuilder:
         if not text_lines:
             return
 
-        # Choose style based on block type
-        if block_type == "title":
-            style = self.body_style_bold
-        else:
-            style = self.body_style
-
-        # Get line data for accurate positioning
+        # Get line data for accurate positioning and font sizing
         lines_data = block.get("lines", [])
 
-        # Fixed line height for consistent spacing (reduced from 14pt to prevent overlaps)
-        FIXED_LINE_HEIGHT = 12
+        # Fixed line height for consistent spacing
+        FIXED_LINE_HEIGHT = 14
+
+        # Font size calibration ratio: 23 bbox units = 12pt font
+        # This ratio preserves original proportional sizing
+        FONT_SIZE_RATIO = 12.0 / 23.0  # ≈ 0.52
 
         try:
             for i, text_line in enumerate(text_lines):
                 # Clean text for ReportLab
                 clean_text = text_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-                # Use fixed line height from top of block (more consistent, less overlap-prone)
-                # Lines are positioned from top going down
+                # Calculate font size from line's bbox height if available
+                calculated_font_size = None
+                if i < len(lines_data):
+                    line_bbox = lines_data[i].get("bbox", [0, 0, 0, 0])
+                    if len(line_bbox) >= 4:
+                        # Bbox height represents the line height in original PDF units
+                        bbox_height = line_bbox[3] - line_bbox[1]
+                        # Convert to ReportLab point size using calibrated ratio
+                        calculated_font_size = max(8, min(18, bbox_height * FONT_SIZE_RATIO))
+
+                # Determine font size and style
+                if calculated_font_size:
+                    font_size = calculated_font_size
+                else:
+                    # Fallback to default sizes
+                    font_size = 14 if block_type == "title" else 11
+
+                # Determine font name (bold for titles)
+                font_name = self.font_name_bold if block_type == "title" else self.font_name
+
+                # Create style with calculated font size
+                line_style = ParagraphStyle(
+                    'Dynamic',
+                    parent=self.styles['Normal'],
+                    fontName=font_name,
+                    fontSize=font_size,
+                    leading=font_size * 1.2,  # Leading is typically 1.2x font size
+                    alignment=TA_JUSTIFY,
+                )
+
+                # Position line using fixed line height from top of block
                 line_y = y + height - ((i + 1) * FIXED_LINE_HEIGHT)
 
                 # Create paragraph and wrap it
-                para = Paragraph(clean_text, style)
+                para = Paragraph(clean_text, line_style)
                 para_width, para_height = para.wrap(width, height)
 
-                # Draw at exact original position
+                # Draw at calculated position
                 para.drawOn(self._canvas, x, line_y)
 
         except Exception as e:
