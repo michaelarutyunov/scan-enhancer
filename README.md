@@ -31,7 +31,7 @@ A HuggingFace Spaces application that processes scanned PDF documents using **Mi
 
 ## Usage
 
-1. Upload a scanned PDF document (max 200 MB, 600 pages)
+1. Upload a scanned PDF document (max 20 MB)
 2. Select output format: JSON → PDF (structured) or Markdown → PDF (simple)
 3. Click "Process Document"
 4. Wait for processing to complete (typically 10-60 seconds)
@@ -131,9 +131,8 @@ scan-enhancer/
 
 | Limit | Value |
 |-------|-------|
-| File size | 200 MB per file |
-| Pages | 600 pages per file |
-| Daily quota | 2000 pages (varies by plan) |
+| File size | 20 MB per file |
+| Daily quota | Varies by account plan |
 
 *Get your API key at https://mineru.net/*
 
