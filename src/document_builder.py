@@ -391,12 +391,11 @@ class DocumentBuilder:
         """
         Direct mapping from bbox height to font size using universal standard buckets.
 
-        Thresholds (based on typical MinerU bbox heights):
-        - < 18 units  → 9pt  (footnotes, small text)
-        - 18-20 units → 10pt (questions, secondary text)
-        - 20-22 units → 11pt (main body text)
-        - 22-25 units → 12pt (headers, emphasis)
-        - > 25 units  → 14pt (large headers)
+        Thresholds (4 wider buckets for stability):
+        - < 18 units  → 9pt  (footnotes, page numbers, smallest text)
+        - 18-23 units → 11pt (main body text, questions, proverbs)
+        - 23-28 units → 12pt (section headers like "Литовские", "Немецкие")
+        - > 28 units  → 14pt (main title or very large headers)
 
         Args:
             bbox_height: Raw bbox height from layout.json (y2 - y1)
@@ -406,11 +405,9 @@ class DocumentBuilder:
         """
         if bbox_height < 18:
             return 9
-        elif bbox_height < 20:
-            return 10
-        elif bbox_height < 22:
+        elif bbox_height < 23:
             return 11
-        elif bbox_height < 25:
+        elif bbox_height < 28:
             return 12
         else:
             return 14
@@ -420,9 +417,9 @@ class DocumentBuilder:
         """
         Render a text block at exact position, preserving line breaks and original spacing.
 
-        Font sizing strategy (universal buckets):
+        Font sizing strategy (universal buckets with median):
         1. Get bbox heights for all lines in the block
-        2. Find the most common bbox height (mode) for this block
+        2. Find the median bbox height (more stable than mode for small samples)
         3. Map directly to font size using fixed thresholds
         4. Apply same font size to all lines in block
 
@@ -454,12 +451,18 @@ class DocumentBuilder:
 
         # Step 2 & 3: Determine font size using universal buckets
         if bbox_heights:
-            # Use the mode (most common value) to represent this block's font size
-            # This is more stable than averaging
-            from collections import Counter
-            mode_bbox_height = Counter(bbox_heights).most_common(1)[0][0]
+            # Use median (middle value) instead of mode
+            # More stable for small samples and handles outliers better
+            sorted_heights = sorted(bbox_heights)
+            mid = len(sorted_heights) // 2
+            if len(sorted_heights) % 2 == 0:
+                # Even number of items: average the two middle values
+                median_bbox_height = (sorted_heights[mid - 1] + sorted_heights[mid]) / 2
+            else:
+                # Odd number of items: take the middle value
+                median_bbox_height = sorted_heights[mid]
             # Direct mapping to font size
-            font_size = self._get_font_size_from_bbox(mode_bbox_height)
+            font_size = self._get_font_size_from_bbox(median_bbox_height)
         else:
             # Fallback to default sizes
             font_size = 14 if block_type == "title" else 11
