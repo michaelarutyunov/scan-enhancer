@@ -38,7 +38,17 @@ class DocumentBuilder:
         self._setup_fonts()
 
     def _setup_fonts(self):
-        """Register fonts that support Cyrillic characters."""
+        """
+        Register fonts that support Cyrillic characters.
+
+        Tries multiple font paths in order of preference:
+        1. DejaVu Sans (Linux)
+        2. Liberation Sans (Linux)
+        3. Arial Unicode (macOS)
+        4. Arial (Windows)
+
+        Falls back to Helvetica if no fonts are found.
+        """
         # Try to register DejaVu Sans (common on Linux)
         font_paths = [
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
@@ -142,7 +152,15 @@ class DocumentBuilder:
         self._add_markdown_text(markdown_text)
 
     def _add_text_block(self, text: str):
-        """Add a text paragraph."""
+        """
+        Add a text paragraph to the document.
+
+        Splits text by newlines and creates a separate Paragraph
+        for each line with body text styling.
+
+        Args:
+            text: The text content to add
+        """
         if not text or not text.strip():
             return
 
@@ -155,7 +173,14 @@ class DocumentBuilder:
         self.story.append(Spacer(1, 0.2 * cm))
 
     def _add_header(self, text: str):
-        """Add a header/title paragraph."""
+        """
+        Add a header/title paragraph to the document.
+
+        Uses heading style (larger, centered text) for section titles.
+
+        Args:
+            text: The header text to add
+        """
         if not text or not text.strip():
             return
 
@@ -163,7 +188,17 @@ class DocumentBuilder:
         self.story.append(Spacer(1, 0.3 * cm))
 
     def _add_markdown_text(self, markdown_text: str):
-        """Add markdown-formatted text."""
+        """
+        Add markdown-formatted text to the document.
+
+        Parses simple markdown syntax:
+        - `# Heading` → heading style
+        - `## Subheading` → heading style
+        - Plain text → body style
+
+        Args:
+            markdown_text: Markdown content to render
+        """
         if not markdown_text:
             return
 
@@ -191,7 +226,21 @@ class DocumentBuilder:
             self.story.append(Spacer(1, 0.2 * cm))
 
     def _add_image(self, item: Dict):
-        """Add an image from MinerU output."""
+        """
+        Add an image from MinerU output to the document.
+
+        Handles multiple image formats:
+        - img_path: Relative path to image in temp_dir (MinerU batch format)
+        - image: Base64 data URI or HTTP URL (fallback)
+
+        Supports both caption and image_caption fields.
+
+        Args:
+            item: Dictionary containing image data with keys:
+                - img_path: Relative path like "images/xxx.jpg"
+                - image: Base64 or URL (fallback)
+                - image_caption/caption: Optional caption text
+        """
         # MinerU may provide: img_path (relative path in temp_dir) or image (base64/URL)
         img_path = item.get("img_path")
         img_data = item.get("image")
@@ -271,7 +320,16 @@ class DocumentBuilder:
             self.story.append(Paragraph(f"[Image: {caption or 'No caption'}]", self.body_style))
 
     def _add_table(self, item: Dict):
-        """Add a table from MinerU output."""
+        """
+        Add a table from MinerU output to the document.
+
+        Creates a ReportLab Table with styling including borders
+        and header formatting.
+
+        Args:
+            item: Dictionary containing table data with key:
+                - content: List of lists representing table rows
+        """
         table_data = item.get("content", [])
         if not table_data:
             return
@@ -311,7 +369,15 @@ class DocumentBuilder:
             print(f"Warning: Could not add table: {e}")
 
     def _add_equation(self, equation_text: str):
-        """Add a mathematical equation."""
+        """
+        Add a mathematical equation to the document.
+
+        Currently renders equations as monospace text. Full LaTeX
+        rendering would require additional dependencies.
+
+        Args:
+            equation_text: LaTeX or plain text equation
+        """
         if not equation_text:
             return
 
