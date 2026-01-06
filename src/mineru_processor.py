@@ -15,7 +15,7 @@ OutputFormat = Literal["json", "markdown"]
 class MinerUAPIProcessor:
     """Client for MinerU API to parse PDF documents."""
 
-    API_BASE_URL = "https://api.mineru.net/api/v1"
+    API_BASE_URL = "https://mineru.net/api/v4"
 
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -66,14 +66,11 @@ class MinerUAPIProcessor:
                 f"API limit is 200MB."
             )
 
-        url = f"{self.API_BASE_URL}/tasks/submit"
+        url = f"{self.API_BASE_URL}/extract/task"
 
         # Prepare multipart form data
         files = {
             "file": (pdf_file.name, open(pdf_path, "rb"), "application/pdf")
-        }
-        data = {
-            "output_format": output_format
         }
 
         try:
@@ -81,7 +78,6 @@ class MinerUAPIProcessor:
                 url,
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 files=files,
-                data=data,
                 timeout=60
             )
             response.raise_for_status()
@@ -110,7 +106,7 @@ class MinerUAPIProcessor:
         Raises:
             requests.RequestException: If API call fails
         """
-        url = f"{self.API_BASE_URL}/tasks/{task_id}"
+        url = f"{self.API_BASE_URL}/extract/task/{task_id}"
 
         response = requests.get(
             url,
@@ -183,10 +179,15 @@ class MinerUAPIProcessor:
         Raises:
             requests.RequestException: If download fails
         """
-        url = f"{self.API_BASE_URL}/tasks/{task_id}/download"
+        # First get the task status to find the download URL
+        result = self.get_task_status(task_id)
+        download_url = result.get("data", {}).get("result", {}).get("download_url")
+
+        if not download_url:
+            raise ValueError(f"No download URL in response: {result}")
 
         response = requests.get(
-            url,
+            download_url,
             headers=self.headers,
             stream=True,
             timeout=60
