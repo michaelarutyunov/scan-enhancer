@@ -183,3 +183,74 @@ def _convert_bbox(bbox, page_height):
 - `_render_text_block()`: Renders text using `Paragraph.drawOn()`
 - `_render_image_block()`: Renders images using `canvas.drawImage()`
 - `_extract_text_from_block()`: Extracts text from lines/spans structure
+
+## 13. Deployment and Verification
+
+### Debugging the Layout Method
+Added debug logging to `app.py` to trace which rendering path is used:
+```python
+print("=" * 80)
+print("DEBUG: PDF RENDERING DECISION")
+print(f"DEBUG: layout_data is None: {layout_data is None}")
+print(f"DEBUG: layout_data type: {type(layout_data)}")
+if layout_data:
+    print(f"DEBUG: pdf_info count: {len(layout_data.get('pdf_info', []))}")
+```
+
+This confirmed the layout method was working after deployment to HuggingFace Spaces.
+
+### Results Achieved
+✅ **Page alignment fixed**: Page "62" now appears at bottom of page 1 (not top of page 2)
+✅ **Page breaks correct**: Page 2 starts with "Холодной осенью..." (matches original)
+✅ **Layout-based rendering active**: Using exact bbox coordinates from layout.json
+
+## 14. Image Rendering in Layout Blocks
+
+### The Problem
+Images weren't rendering even though:
+- Image file exists in `interim/images/8e7034b3420ebc113675f3f69d23572e97a6ca30e0b27e3f38f4fb2c0e040cb4.jpg`
+- layout.json contains image block with correct path
+- Block type is "image"
+
+### Root Cause
+Image blocks have **nested structure** different from text blocks:
+```json
+{
+  "type": "image",
+  "bbox": [...],
+  "blocks": [                    // ← Extra nesting!
+    {
+      "type": "image_body",
+      "lines": [
+        {
+          "spans": [
+            {
+              "type": "image",
+              "image_path": "8e7034...jpg"  // ← Path is here
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Original code only checked `block.get("lines")` directly, missing the nested `blocks[]` array.
+
+### The Fix
+Updated `_render_image_block()` to check both structures:
+1. **Try nested first**: `blocks[] → lines[] → spans[] → image_path`
+2. **Fallback to direct**: `lines[] → spans[] → image_path`
+
+```python
+# Try nested blocks structure first (for image blocks)
+blocks = block.get("blocks", [])
+if blocks:
+    for sub_block in blocks:
+        lines = sub_block.get("lines", [])
+        # ... find image_path in spans
+```
+
+### Lesson Learned
+MinerU's layout.json structure varies by block type. Always inspect the actual JSON structure when implementing parsers, don't assume uniform structure across all block types.
