@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Fetch all history for proper syncing
+          fetch-depth: 0  # Important for proper git history
       
       - name: Configure Git
         run: |
@@ -19,7 +19,7 @@ jobs:
       
       - name: Push to Hugging Face
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN_GITHUB }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN_GITHUB }}  # Secret name → Env variable
         run: |
           git remote add hf https://michaelarutyunov:${HF_TOKEN}@huggingface.co/spaces/michaelarutyunov/scan_improvement
-          git push hf main
+          git push hf main --force
