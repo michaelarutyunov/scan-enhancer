@@ -84,16 +84,19 @@ class MinerUAPIProcessor:
         batch_response.raise_for_status()
         batch_result = batch_response.json()
 
-        # Extract upload URL from response
+        # Extract upload URL and task_id from response
         if batch_result.get("code") != 0:
             raise ValueError(f"Failed to get upload URL: {batch_result}")
 
-        upload_info = batch_result.get("data", {}).get("files", [{}])[0]
-        upload_url = upload_info.get("upload_url")
-        task_id = upload_info.get("task_id")
+        data = batch_result.get("data", {})
+        batch_id = data.get("batch_id")
+        file_urls = data.get("file_urls", [])
 
-        if not upload_url or not task_id:
-            raise ValueError(f"No upload URL or task_id in response: {batch_result}")
+        if not file_urls:
+            raise ValueError(f"No file_urls in response: {batch_result}")
+
+        upload_url = file_urls[0]  # Use first upload URL
+        task_id = batch_id  # Use batch_id as task_id for polling
 
         # Step 2: Upload file to the presigned URL using PUT
         with open(pdf_path, "rb") as f:
