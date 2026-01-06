@@ -169,7 +169,7 @@ class DocumentBuilder:
                      Can be a list of items directly, or a dict with "content" key.
 
         Handles:
-            - Page breaks via page_idx field
+            - Page breaks via page_idx field (groups content by page)
             - Bold styling via text_level field (text_level=1 is bold)
         """
         # MinerU JSON structure can be:
@@ -187,83 +187,63 @@ class DocumentBuilder:
             self._add_markdown_text(text_content)
             return
 
-        # Track current page for page breaks
-        current_page_idx = None
+        # Group items by page_idx to handle page breaks correctly
+        # This ensures page numbers stay on their correct pages
+        from collections import defaultdict
+        pages = defaultdict(list)
 
-        for i, item in enumerate(items):
-            item_type = item.get("type", "")
-            page_idx = item.get("page_idx")
+        for item in items:
+            page_idx = item.get('page_idx', 0)
+            pages[page_idx].append(item)
 
-            # Check for page break using page_idx field
-            # Insert break BEFORE processing first item of new page
-            # This ensures page numbers (discarded items) stay on their original page
-            if page_idx is not None and current_page_idx is not None and page_idx != current_page_idx:
-                # Page changed, insert a page break before adding this item
+        # Process each page's content together
+        for page_idx in sorted(pages.keys()):
+            page_items = pages[page_idx]
+
+            # Skip first page's page break
+            if page_idx > 0:
                 self.story.append(PageBreak())
 
-            # Update current page tracker
-            if page_idx is not None:
-                current_page_idx = page_idx
+            # Add all items for this page
+            for item in page_items:
+                item_type = item.get("type", "")
 
-            if item_type == "text":
-                text = item.get("text", "")
-                text_level = item.get("text_level")
+                if item_type == "text":
+                    text = item.get("text", "")
+                    text_level = item.get("text_level")
 
-                # Look ahead to check if next items are page numbers on same page
-                next_item_has_page_number = False
-                if i + 1 < len(items):
-                    next_item = items[i + 1]
-                    if (next_item.get("type") == "discarded" and
-                        next_item.get("page_idx") == page_idx and
-                        next_item.get("text", "").strip().isdigit()):
-                        next_item_has_page_number = True
-
-                # Smart spacing: Add proper spacer only after section headers (text_level=1)
-                # Body text (text_level=None) gets minimal spacing to prevent overflow
-                if text_level == 1:
-                    # Section header - normal spacing
-                    self._add_text_block(text, style=self.body_style_bold,
-                                        spacer_after=0.15 if not next_item_has_page_number else 0,
-                                        keep_with_next=next_item_has_page_number)
+                    # Smart spacing based on content type
+                    if text_level == 1:
+                        # Section header - normal spacing
+                        self._add_text_block(text, style=self.body_style_bold, spacer_after=0.15)
+                    else:
+                        # Body text/proverbs - minimal spacing
+                        self._add_text_block(text, style=self.body_style, spacer_after=0.05)
+                elif item_type == "image":
+                    self._add_image(item)
+                elif item_type == "header":
+                    self._add_header(item.get("text", ""))
+                elif item_type == "table":
+                    self._add_table(item)
+                elif item_type == "equation":
+                    self._add_equation(item.get("text", ""))
+                elif item_type in ("page_footnote", "page_number"):
+                    # Skip page-level metadata
+                    continue
+                elif item_type == "discarded":
+                    # Add discarded items (includes page numbers) as text
+                    text = item.get("text", "")
+                    if text and text.strip():
+                        # Page numbers - add without spacing
+                        self._add_text_block(text, style=self.body_style, spacer_after=0)
                 else:
-                    # Body text/proverbs - minimal spacing
-                    self._add_text_block(text, style=self.body_style,
-                                        spacer_after=0.05 if not next_item_has_page_number else 0,
-                                        keep_with_next=next_item_has_page_number)
-            elif item_type == "image":
-                self._add_image(item)
-            elif item_type == "header":
-                # Headers are like text but with different styling
-                self._add_header(item.get("text", ""))
-            elif item_type == "table":
-                self._add_table(item)
-            elif item_type == "equation":
-                self._add_equation(item.get("text", ""))
-            elif item_type in ("page_footnote", "page_number"):
-                # Skip page-level metadata
-                continue
-            else:
-                # Unknown type, try to add as text
-                text = item.get("text", "")
-                text_level = item.get("text_level")
-
-                # Look ahead for page number
-                next_item_has_page_number = False
-                if i + 1 < len(items):
-                    next_item = items[i + 1]
-                    if (next_item.get("type") == "discarded" and
-                        next_item.get("page_idx") == page_idx and
-                        next_item.get("text", "").strip().isdigit()):
-                        next_item_has_page_number = True
-
-                if text_level == 1:
-                    self._add_text_block(text, style=self.body_style_bold,
-                                        spacer_after=0.15 if not next_item_has_page_number else 0,
-                                        keep_with_next=next_item_has_page_number)
-                else:
-                    self._add_text_block(text, style=self.body_style,
-                                        spacer_after=0.05 if not next_item_has_page_number else 0,
-                                        keep_with_next=next_item_has_page_number)
+                    # Unknown type, try to add as text
+                    text = item.get("text", "")
+                    text_level = item.get("text_level")
+                    if text_level == 1:
+                        self._add_text_block(text, style=self.body_style_bold, spacer_after=0.15)
+                    else:
+                        self._add_text_block(text, style=self.body_style, spacer_after=0.05)
 
     def add_from_mineru_markdown(self, markdown_text: str):
         """
@@ -274,7 +254,7 @@ class DocumentBuilder:
         """
         self._add_markdown_text(markdown_text)
 
-    def _add_text_block(self, text: str, style=None, spacer_after=0.2, keep_with_next=False):
+    def _add_text_block(self, text: str, style=None, spacer_after=0.2):
         """
         Add a text paragraph to the document.
 
@@ -285,7 +265,6 @@ class DocumentBuilder:
             text: The text content to add
             style: Optional ParagraphStyle to use (defaults to body_style)
             spacer_after: Height of spacer to add after this block in cm (0 for no spacer)
-            keep_with_next: If True, set keepWithNext=True on last paragraph (keeps with following element like page number)
         """
         if not text or not text.strip():
             return
@@ -296,12 +275,8 @@ class DocumentBuilder:
         # Split by lines and add each as a paragraph
         lines = [line.strip() for line in text.split('\n') if line.strip()]
 
-        for i, line in enumerate(lines):
-            para = Paragraph(line, style)
-            # Keep the last paragraph with the next element if requested
-            if keep_with_next and i == len(lines) - 1:
-                para.keepWithNext = True
-            self.story.append(para)
+        for line in lines:
+            self.story.append(Paragraph(line, style))
 
         if spacer_after > 0:
             self.story.append(Spacer(1, spacer_after * cm))
