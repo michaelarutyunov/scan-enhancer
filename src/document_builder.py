@@ -21,16 +21,18 @@ import tempfile
 class DocumentBuilder:
     """Build PDF document from MinerU structured output."""
 
-    def __init__(self, output_path: str, temp_dir: str = None):
+    def __init__(self, output_path: str, temp_dir: str = None, use_consistent_margins: bool = False):
         """
         Initialize document builder.
 
         Args:
             output_path: Where to save the final PDF
             temp_dir: Optional temporary directory containing extracted images
+            use_consistent_margins: If True, use 1.5cm margins; otherwise use 2cm default
         """
         self.output_path = output_path
         self.temp_dir = temp_dir
+        self.use_consistent_margins = use_consistent_margins
         self.story = []
         self.styles = getSampleStyleSheet()
         self.temp_files = []
@@ -346,7 +348,7 @@ class DocumentBuilder:
     def _render_text_block(self, block: Dict, x: float, y: float, width: float, height: float,
                            block_type: str, is_discarded: bool):
         """
-        Render a text block at exact position using Paragraph.drawOn().
+        Render a text block at exact position, preserving line breaks.
 
         Args:
             block: Block data with lines containing spans
@@ -354,9 +356,9 @@ class DocumentBuilder:
             block_type: "text", "title", or "discarded"
             is_discarded: Whether this is a discarded block
         """
-        # Extract text from lines/spans structure
-        text = self._extract_text_from_block(block)
-        if not text.strip():
+        # Extract text lines preserving structure
+        text_lines = self._extract_text_lines_from_block(block)
+        if not text_lines:
             return
 
         # Choose style based on block type
@@ -365,44 +367,66 @@ class DocumentBuilder:
         else:
             style = self.body_style
 
-        # Create paragraph and render at exact position
+        # Render each line at its position
         try:
-            # Clean text for ReportLab (escape special characters)
-            clean_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            lines_data = block.get("lines", [])
+            line_height = 14  # Approximate line height in points
 
-            para = Paragraph(clean_text, style)
-            para_width, para_height = para.wrap(width, height)
+            for i, text_line in enumerate(text_lines):
+                # Get y-offset for this line (position from original)
+                if i < len(lines_data):
+                    line_bbox = lines_data[i].get("bbox", [0, 0, 0, 0])
+                    # Calculate relative position within block
+                    if len(line_bbox) >= 4:
+                        # Use the line's y position relative to block
+                        # But we need to render within the block's space
+                        pass
 
-            # Draw at exact position
-            para.drawOn(self._canvas, x, y)
+                # Clean text for ReportLab
+                clean_text = text_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+                para = Paragraph(clean_text, style)
+                para_width, para_height = para.wrap(width, line_height)
+
+                # Position each line vertically within the block
+                line_y = y + height - ((i + 1) * line_height)
+                para.drawOn(self._canvas, x, line_y)
 
         except Exception as e:
-            # Fallback to simple drawString if Paragraph fails
-            print(f"Warning: Paragraph failed for '{text[:50]}...': {e}")
+            # Fallback to simple text rendering
+            print(f"Warning: Paragraph failed for '{text_lines[0][:50] if text_lines else ''}...': {e}")
             self._canvas.setFont(self.font_name, 11)
-            self._canvas.drawString(x, y + height - 11, text[:100])  # Approximate position
+            # Render all lines as fallback
+            for i, text_line in enumerate(text_lines):
+                line_y = y + height - ((i + 1) * 14)
+                self._canvas.drawString(x, line_y, text_line[:80])
 
-    def _extract_text_from_block(self, block: Dict) -> str:
+    def _extract_text_lines_from_block(self, block: Dict) -> list:
         """
-        Extract text content from block's lines/spans structure.
+        Extract text lines from block's lines/spans structure, preserving line breaks.
 
         Args:
             block: Block with lines array containing spans
 
         Returns:
-            Combined text from all spans
+            List of text strings, one per line
         """
         lines = block.get("lines", [])
-        text_parts = []
+        text_lines = []
 
         for line in lines:
             spans = line.get("spans", [])
+            line_text_parts = []
             for span in spans:
                 content = span.get("content", "")
                 if content:
-                    text_parts.append(content)
+                    line_text_parts.append(content)
 
-        return " ".join(text_parts)
+            # Join spans within a line with spaces, but keep lines separate
+            if line_text_parts:
+                text_lines.append(" ".join(line_text_parts))
+
+        return text_lines
 
     def _render_image_block(self, block: Dict, x: float, y: float, width: float, height: float):
         """
@@ -754,13 +778,16 @@ class DocumentBuilder:
         """
         Save completed document to output path.
         """
+        # Use consistent 1.5cm margins if requested, otherwise use default 2cm
+        margin = 1.5 * cm if self.use_consistent_margins else 2 * cm
+
         doc = SimpleDocTemplate(
             self.output_path,
             pagesize=A4,
-            rightMargin=2 * cm,
-            leftMargin=2 * cm,
-            topMargin=2 * cm,
-            bottomMargin=2 * cm,
+            rightMargin=margin,
+            leftMargin=margin,
+            topMargin=margin,
+            bottomMargin=margin,
         )
 
         doc.build(self.story)
@@ -778,7 +805,8 @@ def create_pdf_from_mineru(
     output_path: str,
     content: Any,
     content_type: str = "json",
-    temp_dir: str = None
+    temp_dir: str = None,
+    use_consistent_margins: bool = False
 ) -> str:
     """
     Helper function to create PDF from MinerU output.
@@ -788,11 +816,12 @@ def create_pdf_from_mineru(
         content: MinerU JSON or Markdown content
         content_type: "json" or "markdown"
         temp_dir: Optional temporary directory containing extracted images
+        use_consistent_margins: If True, use 1.5cm margins on all sides
 
     Returns:
         Path to created document
     """
-    builder = DocumentBuilder(output_path, temp_dir=temp_dir)
+    builder = DocumentBuilder(output_path, temp_dir=temp_dir, use_consistent_margins=use_consistent_margins)
 
     if content_type == "json":
         builder.add_from_mineru_json(content)

@@ -36,6 +36,7 @@ def process_pdf(
     output_format: str,
     language: str,
     download_raw: bool,
+    keep_original_margins: bool,
     progress=gr.Progress()
 ) -> tuple:
     """
@@ -46,6 +47,7 @@ def process_pdf(
         output_format: "json" or "markdown" - MinerU output format
         language: Language code for OCR (e.g., "ru" for Russian)
         download_raw: If True, also return raw MinerU output ZIP
+        keep_original_margins: If True, use exact positioning; if False, use consistent 1.5cm margins
         progress: Gradio progress tracker
 
     Returns:
@@ -109,21 +111,25 @@ def process_pdf(
             print("=" * 80)
 
             # Build PDF from MinerU output
-            # Prefer layout.json for exact positioning (matches original page layout)
-            if layout_data:
-                print("DEBUG: Using layout.json for exact positioning")
+            # Choose rendering method based on margin preference
+            if keep_original_margins and layout_data:
+                # Use layout.json for exact positioning (preserves original margins)
+                print("DEBUG: Using layout.json for exact positioning (original margins)")
                 create_pdf_from_layout(
                     output_path=output_path,
                     layout_data=layout_data,
                     temp_dir=temp_dir
                 )
             else:
-                print("DEBUG: Using content_list.json (layout.json not available)")
+                # Use content_list.json for flow-based rendering (consistent 1.5cm margins)
+                reason = "user requested consistent margins" if not keep_original_margins else "layout.json not available"
+                print(f"DEBUG: Using content_list.json for flow-based rendering ({reason})")
                 create_pdf_from_mineru(
                     output_path=output_path,
                     content=result_data,
                     content_type=output_format,
-                    temp_dir=temp_dir
+                    temp_dir=temp_dir,
+                    use_consistent_margins=not keep_original_margins
                 )
 
             progress(1.0, desc="Complete!")
@@ -210,6 +216,12 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="Enable to also download the raw MinerU ZIP file for debugging"
             )
 
+            keep_original_margins = gr.Checkbox(
+                label="Keep original page margins",
+                value=True,
+                info="When unchecked, uses consistent 1.5cm margins on all sides"
+            )
+
             process_btn = gr.Button(
                 "🚀 Process Document",
                 variant="primary",
@@ -246,7 +258,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
     # Connect processing function
     process_btn.click(
         fn=process_pdf,
-        inputs=[pdf_input, output_format, language, download_raw],
+        inputs=[pdf_input, output_format, language, download_raw, keep_original_margins],
         outputs=[output_file, mineru_output]
     )
 
