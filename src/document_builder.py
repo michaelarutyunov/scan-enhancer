@@ -391,11 +391,11 @@ class DocumentBuilder:
         """
         Direct mapping from bbox height to font size using universal standard buckets.
 
-        Thresholds (4 wider buckets for stability):
+        Thresholds (shifted down to make tasks 10pt):
         - < 18 units  → 9pt  (footnotes, page numbers, smallest text)
-        - 18-24 units → 11pt (main body text, questions, proverbs)
-        - 24-30 units → 12pt (section headers like "Литовские", "Немецкие")
-        - > 30 units  → 14pt (main title or very large headers)
+        - 18-22 units → 10pt (main body text, questions, proverbs)
+        - 22-30 units → 11pt (section headers like "Литовские", "Немецкие")
+        - > 30 units  → 12pt (main title or very large headers)
 
         Args:
             bbox_height: Raw bbox height from layout.json (y2 - y1)
@@ -405,12 +405,12 @@ class DocumentBuilder:
         """
         if bbox_height < 18:
             return 9
-        elif bbox_height < 24:
-            return 11
+        elif bbox_height < 22:
+            return 10
         elif bbox_height < 30:
-            return 12
+            return 11
         else:
-            return 14
+            return 12
 
     def _render_text_block(self, block: Dict, x: float, y: float, width: float, height: float,
                            block_type: str, is_discarded: bool, page_height: float):
