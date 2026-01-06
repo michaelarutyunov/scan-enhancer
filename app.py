@@ -34,6 +34,7 @@ except ValueError as e:
 def process_pdf(
     pdf_file,
     output_format: str,
+    language: str,
     progress=gr.Progress()
 ) -> str:
     """
@@ -42,6 +43,7 @@ def process_pdf(
     Args:
         pdf_file: Uploaded PDF file object
         output_format: "json" or "markdown" - MinerU output format
+        language: Language code for OCR (e.g., "ru" for Russian)
         progress: Gradio progress tracker
 
     Returns:
@@ -75,16 +77,16 @@ def process_pdf(
 
         # Submit to MinerU API
         progress(0.15, desc="Submitting to MinerU API...")
-        result = mineru.process_pdf(pdf_path, output_format=output_format)
+        result = mineru.process_pdf(pdf_path, output_format=output_format, language=language)
 
         task_id = result.get("task_id")
         status = result.get("status")
+        result_data = result.get("result", {})
 
         if status == "completed":
             progress(0.8, desc="Parsing complete! Building PDF...")
 
             # Get the parsed content
-            result_data = result.get("result", {})
             temp_dir = result.get("temp_dir")
 
             # Create output filename
@@ -102,7 +104,9 @@ def process_pdf(
             progress(1.0, desc="Complete!")
             return output_path
         else:
-            raise gr.Error(f"Processing failed: {status}")
+            # Extract error message if available
+            error_msg = result_data.get("error", status)
+            raise gr.Error(f"Processing failed: {error_msg}")
 
     except gr.Error:
         raise
@@ -147,6 +151,22 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="JSON preserves more structure, Markdown is simpler"
             )
 
+            language = gr.Dropdown(
+                choices=[
+                    ("Russian", "ru"),
+                    ("Chinese", "ch"),
+                    ("English", "en"),
+                    ("Japanese", "japan"),
+                    ("Korean", "korean"),
+                    ("German", "german"),
+                    ("French", "french"),
+                    ("Spanish", "spanish"),
+                ],
+                value="ru",
+                label="Document Language",
+                info="Select the primary language for better OCR accuracy"
+            )
+
             gr.Markdown("""
             **Tips for best results:**
             - Use high-quality scans
@@ -177,7 +197,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
     # Connect processing function
     process_btn.click(
         fn=process_pdf,
-        inputs=[pdf_input, output_format],
+        inputs=[pdf_input, output_format, language],
         outputs=output_file
     )
 

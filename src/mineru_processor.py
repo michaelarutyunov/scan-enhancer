@@ -41,7 +41,8 @@ class MinerUAPIProcessor:
     def submit_task(
         self,
         pdf_path: str,
-        output_format: OutputFormat = "json"
+        output_format: OutputFormat = "json",
+        language: str = "ru"
     ) -> str:
         """
         Submit a PDF parsing task to MinerU API using the file-urls/batch workflow.
@@ -49,6 +50,7 @@ class MinerUAPIProcessor:
         Args:
             pdf_path: Path to the PDF file to parse
             output_format: "json" or "markdown"
+            language: Document language code (e.g., "ru" for Russian, "ch" for Chinese)
 
         Returns:
             task_id: The task ID for polling
@@ -72,6 +74,7 @@ class MinerUAPIProcessor:
         batch_url = f"{self.API_BASE_URL}/file-urls/batch"
         batch_data = {
             "model_version": "vlm",
+            "language": language,
             "files": [{
                 "name": pdf_file.name,
                 "data_id": pdf_file.stem  # Use filename without extension as data_id
@@ -208,7 +211,8 @@ class MinerUAPIProcessor:
     def process_pdf(
         self,
         pdf_path: str,
-        output_format: OutputFormat = "json"
+        output_format: OutputFormat = "json",
+        language: str = "ru"
     ) -> Dict:
         """
         Complete workflow: submit, poll, and get result.
@@ -218,11 +222,12 @@ class MinerUAPIProcessor:
         Args:
             pdf_path: Path to the PDF file
             output_format: "json" or "markdown"
+            language: Document language code (default "ru" for Russian)
 
         Returns:
-            Dict with task_id, status ("completed"/"failed"), and parsed content
+            Dict with task_id, status ("completed"/"failed"), and parsed content or error message
         """
-        task_id = self.submit_task(pdf_path, output_format)
+        task_id = self.submit_task(pdf_path, output_format, language)
         result = self.poll_task(task_id)
 
         # Extract data from batch response format
@@ -234,12 +239,12 @@ class MinerUAPIProcessor:
             state = first_result.get("state", "")
 
             if state != "done":
-                # Map batch state to legacy status for backward compatibility
-                status = state if state else "unknown"
+                # Extract error message if available
+                error_msg = first_result.get("err_msg", "Unknown error")
                 return {
                     "task_id": task_id,
-                    "status": status,
-                    "result": first_result
+                    "status": state,  # Return actual state: failed, running, etc.
+                    "result": {"error": error_msg}
                 }
 
             # Download and extract the ZIP file content
