@@ -387,30 +387,30 @@ class DocumentBuilder:
 
         return x1, rl_y, width, height
 
-    def _bin_font_size(self, calculated_size: float) -> int:
+    def _get_font_size_from_bbox(self, bbox_height: float) -> int:
         """
-        Bin calculated font size into discrete standard sizes.
+        Direct mapping from bbox height to font size using universal standard buckets.
 
-        Buckets:
-        - 9pt: 8.5 - 9.5 (footnotes, small text)
-        - 10pt: 9.5 - 10.5 (questions, secondary text)
-        - 11pt: 10.5 - 11.5 (main body text)
-        - 12pt: 11.5 - 13.0 (headers, emphasis)
-        - 14pt: 13.0+ (large headers)
+        Thresholds (based on typical MinerU bbox heights):
+        - < 18 units  → 9pt  (footnotes, small text)
+        - 18-20 units → 10pt (questions, secondary text)
+        - 20-22 units → 11pt (main body text)
+        - 22-25 units → 12pt (headers, emphasis)
+        - > 25 units  → 14pt (large headers)
 
         Args:
-            calculated_size: Raw calculated font size from bbox height
+            bbox_height: Raw bbox height from layout.json (y2 - y1)
 
         Returns:
-            Binned font size as integer
+            Font size in points
         """
-        if calculated_size < 9.5:
+        if bbox_height < 18:
             return 9
-        elif calculated_size < 10.5:
+        elif bbox_height < 20:
             return 10
-        elif calculated_size < 11.5:
+        elif bbox_height < 22:
             return 11
-        elif calculated_size < 13.0:
+        elif bbox_height < 25:
             return 12
         else:
             return 14
@@ -420,12 +420,11 @@ class DocumentBuilder:
         """
         Render a text block at exact position, preserving line breaks and original spacing.
 
-        Font sizing strategy:
-        1. Calculate bbox height for each line in the block
-        2. Average the bbox heights for the entire block (smooths noise)
-        3. Convert average to font size using calibrated ratio (23 units = 12pt)
-        4. Bin to discrete font sizes (9, 10, 11, 12, 14pt)
-        5. Apply the same binned size to all lines in the block
+        Font sizing strategy (universal buckets):
+        1. Get bbox heights for all lines in the block
+        2. Find the most common bbox height (mode) for this block
+        3. Map directly to font size using fixed thresholds
+        4. Apply same font size to all lines in block
 
         Args:
             block: Block data with lines containing spans
@@ -445,10 +444,7 @@ class DocumentBuilder:
         # Fixed line height for consistent spacing
         FIXED_LINE_HEIGHT = 14
 
-        # Font size calibration ratio: 23 bbox units = 12pt font
-        FONT_SIZE_RATIO = 12.0 / 23.0  # ≈ 0.52
-
-        # Step 1: Calculate average bbox height for the entire block
+        # Step 1: Collect bbox heights for all lines in this block
         bbox_heights = []
         for line_data in lines_data:
             line_bbox = line_data.get("bbox", [0, 0, 0, 0])
@@ -456,14 +452,14 @@ class DocumentBuilder:
                 bbox_height = line_bbox[3] - line_bbox[1]
                 bbox_heights.append(bbox_height)
 
-        # Step 2: Determine font size for this block
+        # Step 2 & 3: Determine font size using universal buckets
         if bbox_heights:
-            # Use average bbox height for the block (smooths out noise)
-            avg_bbox_height = sum(bbox_heights) / len(bbox_heights)
-            # Convert to font size using calibrated ratio
-            calculated_size = avg_bbox_height * FONT_SIZE_RATIO
-            # Step 3: Bin to discrete font sizes
-            font_size = self._bin_font_size(calculated_size)
+            # Use the mode (most common value) to represent this block's font size
+            # This is more stable than averaging
+            from collections import Counter
+            mode_bbox_height = Counter(bbox_heights).most_common(1)[0][0]
+            # Direct mapping to font size
+            font_size = self._get_font_size_from_bbox(mode_bbox_height)
         else:
             # Fallback to default sizes
             font_size = 14 if block_type == "title" else 11
@@ -476,7 +472,7 @@ class DocumentBuilder:
                 # Clean text for ReportLab
                 clean_text = text_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-                # Step 4: Create style with the binned font size (same for all lines in block)
+                # Create style with the font size (same for all lines in block)
                 line_style = ParagraphStyle(
                     'Dynamic',
                     parent=self.styles['Normal'],
