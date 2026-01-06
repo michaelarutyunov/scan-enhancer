@@ -57,12 +57,12 @@ class MinerUAPIProcessor:
         if not pdf_file.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
-        # Check file size (API limit is ~20MB for single file)
+        # Check file size (API limit is 200MB)
         file_size_mb = pdf_file.stat().st_size / (1024 * 1024)
-        if file_size_mb > 20:
+        if file_size_mb > 200:
             raise ValueError(
                 f"PDF file too large: {file_size_mb:.1f}MB. "
-                f"API limit is 20MB."
+                f"API limit is 200MB."
             )
 
         # Step 1: Get upload URL from file-urls/batch endpoint
@@ -114,8 +114,10 @@ class MinerUAPIProcessor:
         """
         Get the status of a parsing task.
 
+        For batch file uploads, uses the batch results endpoint.
+
         Args:
-            task_id: The task ID to check
+            task_id: The batch_id to check
 
         Returns:
             Dict with task status and result if complete
@@ -123,7 +125,7 @@ class MinerUAPIProcessor:
         Raises:
             requests.RequestException: If API call fails
         """
-        url = f"{self.API_BASE_URL}/extract/task/{task_id}"
+        url = f"{self.API_BASE_URL}/extract-results/batch/{task_id}"
 
         response = requests.get(
             url,
@@ -143,8 +145,10 @@ class MinerUAPIProcessor:
         """
         Poll a task until completion or timeout.
 
+        For batch file uploads, polls the batch results endpoint.
+
         Args:
-            task_id: The task ID to poll
+            task_id: The batch_id to poll
             max_wait_seconds: Maximum time to wait (default 10 min)
             poll_interval: Seconds between polls
 
@@ -160,22 +164,30 @@ class MinerUAPIProcessor:
         while True:
             result = self.get_task_status(task_id)
 
-            # Check response structure
+            # Check response structure for batch results
             if result.get("code") == 0:
                 data = result.get("data", {})
-                status = data.get("status", "")
+                extract_results = data.get("extract_result", [])
 
-                if status == "completed":
-                    return result
-                elif status == "failed":
-                    error = data.get("error", "Unknown error")
-                    raise RuntimeError(f"Task failed: {error}")
-                elif status in ("pending", "processing"):
-                    # Continue polling
+                if not extract_results:
+                    # No results yet, continue polling
                     pass
                 else:
-                    # Unknown status but continue polling
-                    pass
+                    # Check first file's status
+                    first_result = extract_results[0]
+                    state = first_result.get("state", "")
+
+                    if state == "done":
+                        return result
+                    elif state == "failed":
+                        error = first_result.get("err_msg", "Unknown error")
+                        raise RuntimeError(f"Task failed: {error}")
+                    elif state in ("waiting-file", "pending", "running", "converting"):
+                        # Continue polling
+                        pass
+                    else:
+                        # Unknown status but continue polling
+                        pass
             else:
                 # Error response, but might be transient
                 error_msg = result.get("msg", "Unknown error")
@@ -198,18 +210,37 @@ class MinerUAPIProcessor:
         """
         Complete workflow: submit, poll, and get result.
 
+        For batch file uploads, returns the extract_result from the batch response.
+
         Args:
             pdf_path: Path to the PDF file
             output_format: "json" or "markdown"
 
         Returns:
-            Dict with task_id, status, and result_url or content
+            Dict with task_id, status ("completed"/"failed"), and result data
         """
         task_id = self.submit_task(pdf_path, output_format)
         result = self.poll_task(task_id)
 
-        return {
-            "task_id": task_id,
-            "status": result.get("data", {}).get("status"),
-            "result": result.get("data", {})
-        }
+        # Extract data from batch response format
+        data = result.get("data", {})
+        extract_results = data.get("extract_result", [])
+
+        if extract_results:
+            first_result = extract_results[0]
+            state = first_result.get("state", "")
+
+            # Map batch state to legacy status for backward compatibility
+            status = "completed" if state == "done" else state
+
+            return {
+                "task_id": task_id,
+                "status": status,
+                "result": first_result
+            }
+        else:
+            return {
+                "task_id": task_id,
+                "status": "unknown",
+                "result": {}
+            }

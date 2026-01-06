@@ -66,8 +66,8 @@ def process_pdf(
         if not validate_pdf_path(pdf_path):
             raise gr.Error("Invalid file. Please upload a PDF file.")
 
-        # Check file size (MinerU API limit - using conservative 20MB)
-        is_valid, size_mb, msg = check_file_size_limit(pdf_path, max_mb=20)
+        # Check file size (MinerU API limit is 200MB)
+        is_valid, size_mb, msg = check_file_size_limit(pdf_path, max_mb=200)
         if not is_valid:
             raise gr.Error(msg)
 
@@ -123,7 +123,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
     - Outputs searchable PDF
 
     **Limitations:**
-    - Maximum file size: 20 MB
+    - Maximum file size: 200 MB
     - Requires internet connection (MinerU cloud API)
     """)
 
@@ -149,7 +149,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             **Tips for best results:**
             - Use high-quality scans
             - Ensure pages are properly oriented
-            - Files must be under 20 MB
+            - Files must be under 200 MB
             """)
 
             process_btn = gr.Button(
