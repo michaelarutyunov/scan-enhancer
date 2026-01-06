@@ -217,8 +217,8 @@ class DocumentBuilder:
                 self._add_table(item)
             elif item_type == "equation":
                 self._add_equation(item.get("text", ""))
-            elif item_type in ("page_footnote", "page_number", "discarded"):
-                # Skip page-level metadata and discarded items (page numbers, etc.)
+            elif item_type in ("page_footnote", "page_number"):
+                # Skip page-level metadata
                 continue
             else:
                 # Unknown type, try to add as text
