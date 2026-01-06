@@ -11,14 +11,14 @@ The batch upload workflow has specific requirements:
 MinerU returns multiple files in the ZIP:
 ```
 full.md                          # Markdown content
-*_content_list.json              # Structured JSON with layout
-layout.json                      # Layout metadata
+*_content_list.json              # Flattened sequential list of all items
+layout.json                      # Page-level structure with bbox coordinates
 *_model.json                     # Model metadata
 images/*.jpg                     # Extracted images
 *_origin.pdf                     # Original PDF
 ```
 
-**Critical:** Must select the right file based on requested format!
+**Critical:** `content_list.json` is flattened (loses page boundaries) while `layout.json` preserves page structure!
 
 ## 3. Content Format Mismatch
 The document builder expected:
@@ -69,3 +69,83 @@ Gradio Upload → Validate → Submit to MinerU → Poll → Download ZIP → Ex
 ```
 
 Each step can fail; need proper error handling at each stage.
+
+## 11. ReportLab Page Flow Nuances
+
+### The Fundamental Issue
+ReportLab's **natural page flow** operates independently of logical `PageBreak` insertions. When content fills a page, ReportLab automatically flows remaining content to the next page **during the build phase**, regardless of where `PageBreak()` is placed in the story list.
+
+### Why Page Numbers Get Pushed
+1. **Sequential processing**: Items are added to story list in order
+2. **Cumulative overflow**: Multiple items (paragraphs, spacers) fill the page
+3. **Natural flow kicks in**: ReportLab flows excess content to next page
+4. **PageBreak comes too late**: Logical PageBreak happens after natural flow already occurred
+
+### Attempted Solutions (and why they didn't work)
+
+#### keepWithNext Attribute
+```python
+para.keepWithNext = True  # Only keeps THIS paragraph with next element
+```
+**Problem**: Only applies to individual flowables. Earlier paragraphs in the same text block can still flow independently. Setting it on the last paragraph doesn't prevent earlier paragraphs from flowing.
+
+#### Smart Spacing
+```python
+# Reduced spacers: headers 0.15cm, body text 0.05cm
+```
+**Problem**: Helps reduce overflow but doesn't solve the fundamental issue. With enough content, page still overflows.
+
+#### Grouping by Page Index
+```python
+# Group items by page_idx, add PageBreak between pages
+pages = defaultdict(list)
+for item in items:
+    pages[item['page_idx']].append(item)
+```
+**Problem**: Still adds all flowables to story list sequentially. ReportLab's flow algorithm doesn't respect our logical grouping - it flows based on available space during build.
+
+### The Real Solution
+Switch to `layout.json` which has:
+- **Page-level structure**: `pdf_info` array with one entry per page
+- **Positional data**: `bbox` coordinates for each element
+- **Proper grouping**: Each page has `preproc_blocks` (content) and `discarded_blocks` (page numbers)
+
+Example structure:
+```json
+{
+  "pdf_info": [
+    {
+      "page_idx": 0,
+      "preproc_blocks": [...],      // Content for page 0
+      "discarded_blocks": [...]     // Page numbers for page 0
+    },
+    {
+      "page_idx": 1,
+      "preproc_blocks": [...],      // Content for page 1
+      "discarded_blocks": [...]     // Page numbers for page 1
+    }
+  ]
+}
+```
+
+### Key Insight
+`content_list.json` is **flattened** and loses page boundaries. `layout.json` preserves the page-level structure that MinerU extracted. Using `layout.json` would allow processing each page as a unit, keeping page numbers with their correct pages.
+
+### ReportLab Build Process
+1. **Layout phase**: ReportLab calculates positions and decides where content fits
+2. **Flow algorithm**: Automatically flows content to next page when space runs out
+3. **Rendering phase**: Actually draws the content
+
+Our `PageBreak()` insertions happen during story construction, but ReportLab's flow algorithm makes final decisions during the layout phase.
+
+### Content Overflow Example
+Page 0 contains:
+- 7 bold headers (text_level=1)
+- 31 paragraphs (from splitting multi-proverb items by `\n`)
+- 14 spacers × 0.2cm = 2.8cm of blank space
+- Page number "62" at the end
+
+Even with reduced spacers (1.4cm total), the cumulative content height can exceed available page space, causing ReportLab to flow the page number to page 1.
+
+### Discarded Items
+MinerU marks page numbers as `type="discarded"` with the page number as text content (e.g., "62", "63"). These appear at the end of each page's content in the sequence, and their `bbox` coordinates show they're positioned at the bottom of the page.
