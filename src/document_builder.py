@@ -50,9 +50,12 @@ class DocumentBuilder:
 
         Falls back to Helvetica if no fonts are found.
         WARNING: Helvetica does NOT support Cyrillic characters!
+
+        Also registers bold variant if available.
         """
         # Bundled font path (highest priority)
         bundled_font = os.path.join(os.path.dirname(__file__), '..', 'fonts', 'DejaVuSans.ttf')
+        bundled_bold_font = os.path.join(os.path.dirname(__file__), '..', 'fonts', 'DejaVuSans-Bold.ttf')
 
         # Try to register DejaVu Sans (common on Linux)
         font_paths = [
@@ -64,7 +67,15 @@ class DocumentBuilder:
             'C:\\Windows\\Fonts\\arial.ttf',  # Windows
         ]
 
+        # Bold font paths
+        bold_font_paths = [
+            bundled_bold_font,
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+        ]
+
         self.font_name = 'Helvetica'  # Default fallback
+        self.font_name_bold = 'Helvetica-Bold'  # Bold fallback
         font_found = False
 
         print("DEBUG: Setting up fonts for Cyrillic support...")
@@ -81,12 +92,33 @@ class DocumentBuilder:
                     print(f"DEBUG: Failed to register font {font_path}: {e}")
                     continue
 
+        # Try to register bold font
+        bold_font_found = False
+        if font_found:
+            for bold_font_path in bold_font_paths:
+                print(f"DEBUG: Checking bold font path: {bold_font_path}")
+                if os.path.exists(bold_font_path):
+                    try:
+                        pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', bold_font_path))
+                        self.font_name_bold = 'DejaVuSans-Bold'
+                        bold_font_found = True
+                        print(f"DEBUG: Successfully registered bold font from: {bold_font_path}")
+                        break
+                    except Exception as e:
+                        print(f"DEBUG: Failed to register bold font {bold_font_path}: {e}")
+                        continue
+
         if not font_found:
             print("=" * 60)
             print("WARNING: No Cyrillic-compatible font found!")
             print("WARNING: Using Helvetica fallback - Cyrillic text will NOT render correctly!")
             print("WARNING: Install fonts-dejavu-core or add DejaVuSans.ttf to fonts/ directory")
             print("=" * 60)
+        elif not bold_font_found:
+            print("=" * 60)
+            print("WARNING: Bold font not found, using regular font for bold text")
+            print("=" * 60)
+            self.font_name_bold = self.font_name
 
         # Create custom styles
         self.body_style = ParagraphStyle(
@@ -99,15 +131,15 @@ class DocumentBuilder:
             spaceAfter=8,
         )
 
+        # Use the registered bold font for bold text
         self.body_style_bold = ParagraphStyle(
             'BodyBold',
             parent=self.body_style,
-            fontName=self.font_name,
+            fontName=self.font_name_bold,
             fontSize=11,
             leading=14,
             alignment=TA_JUSTIFY,
             spaceAfter=8,
-            fontWeight='bold',
         )
 
         self.heading_style = ParagraphStyle(
@@ -185,8 +217,8 @@ class DocumentBuilder:
                 self._add_table(item)
             elif item_type == "equation":
                 self._add_equation(item.get("text", ""))
-            elif item_type in ("page_footnote", "page_number"):
-                # Skip page-level metadata
+            elif item_type in ("page_footnote", "page_number", "discarded"):
+                # Skip page-level metadata and discarded items (page numbers, etc.)
                 continue
             else:
                 # Unknown type, try to add as text
