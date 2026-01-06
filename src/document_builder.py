@@ -21,7 +21,7 @@ import tempfile
 class DocumentBuilder:
     """Build PDF document from MinerU structured output."""
 
-    def __init__(self, output_path: str, temp_dir: str = None, use_consistent_margins: bool = False):
+    def __init__(self, output_path: str, temp_dir: str = None, use_consistent_margins: bool = False, font_buckets: dict = None):
         """
         Initialize document builder.
 
@@ -29,6 +29,8 @@ class DocumentBuilder:
             output_path: Where to save the final PDF
             temp_dir: Optional temporary directory containing extracted images
             use_consistent_margins: If True, use 1.5cm margins; otherwise use 2cm default
+            font_buckets: Optional dict with custom bbox height thresholds for font sizing
+                         Keys: "bucket_10", "bucket_11", "bucket_12"
         """
         self.output_path = output_path
         self.temp_dir = temp_dir
@@ -36,6 +38,11 @@ class DocumentBuilder:
         self.story = []
         self.styles = getSampleStyleSheet()
         self.temp_files = []
+
+        # Font bucket thresholds (default values)
+        self.font_bucket_10 = font_buckets.get("bucket_10", 22) if font_buckets else 22
+        self.font_bucket_11 = font_buckets.get("bucket_11", 30) if font_buckets else 30
+        self.font_bucket_12 = font_buckets.get("bucket_12", 40) if font_buckets else 40
 
         # Setup fonts for Cyrillic support
         self._setup_fonts()
@@ -391,11 +398,12 @@ class DocumentBuilder:
         """
         Direct mapping from bbox height to font size using universal standard buckets.
 
-        Thresholds (shifted down to make tasks 10pt):
-        - < 18 units  → 9pt  (footnotes, page numbers, smallest text)
-        - 18-22 units → 10pt (main body text, questions, proverbs)
-        - 22-30 units → 11pt (section headers like "Литовские", "Немецкие")
-        - > 30 units  → 12pt (main title or very large headers)
+        Thresholds (dynamic, set via font_buckets parameter):
+        - < 18 units         → 9pt  (footnotes, page numbers, smallest text)
+        - 18 - bucket_10    → 10pt (main body text, questions, proverbs)
+        - bucket_10 - bucket_11 → 11pt (section headers like "Литовские", "Немецкие")
+        - bucket_11 - bucket_12 → 12pt (main title or large headers)
+        - > bucket_12       → 13pt (very large headers)
 
         Args:
             bbox_height: Raw bbox height from layout.json (y2 - y1)
@@ -405,12 +413,14 @@ class DocumentBuilder:
         """
         if bbox_height < 18:
             return 9
-        elif bbox_height < 22:
+        elif bbox_height < self.font_bucket_10:
             return 10
-        elif bbox_height < 30:
+        elif bbox_height < self.font_bucket_11:
             return 11
-        else:
+        elif bbox_height < self.font_bucket_12:
             return 12
+        else:
+            return 13
 
     def _render_text_block(self, block: Dict, x: float, y: float, width: float, height: float,
                            block_type: str, is_discarded: bool, page_height: float):
@@ -944,7 +954,8 @@ def create_pdf_from_layout(
     output_path: str,
     layout_data: Dict,
     temp_dir: str = None,
-    use_consistent_margins: bool = False
+    use_consistent_margins: bool = False,
+    font_buckets: dict = None
 ) -> str:
     """
     Create PDF from MinerU layout.json with exact positioning.
@@ -957,11 +968,13 @@ def create_pdf_from_layout(
         layout_data: Parsed layout.json content with pdf_info array
         temp_dir: Temporary directory containing extracted images
         use_consistent_margins: If True, use 1.5cm margins with A4 page size
+        font_buckets: Optional dict with custom bbox height thresholds for font sizing
+                     Keys: "bucket_10", "bucket_11", "bucket_12"
 
     Returns:
         Path to created document
     """
-    builder = DocumentBuilder(output_path, temp_dir=temp_dir)
+    builder = DocumentBuilder(output_path, temp_dir=temp_dir, font_buckets=font_buckets)
     builder.add_from_layout_json(layout_data, use_consistent_margins=use_consistent_margins)
     # Note: add_from_layout_json() saves the document directly
     return output_path

@@ -37,6 +37,9 @@ def process_pdf(
     language: str,
     download_raw: bool,
     keep_original_margins: bool,
+    font_bucket_10: int,
+    font_bucket_11: int,
+    font_bucket_12: int,
     progress=gr.Progress()
 ) -> tuple:
     """
@@ -48,6 +51,9 @@ def process_pdf(
         language: Language code for OCR (e.g., "ru" for Russian)
         download_raw: If True, also return raw MinerU output ZIP
         keep_original_margins: If True, use exact positioning; if False, use consistent 1.5cm margins
+        font_bucket_10: Bbox height threshold for 10pt font (default 22)
+        font_bucket_11: Bbox height threshold for 11pt font (default 30)
+        font_bucket_12: Bbox height threshold for 12pt font (default 40)
         progress: Gradio progress tracker
 
     Returns:
@@ -124,7 +130,12 @@ def process_pdf(
                     output_path=output_path,
                     layout_data=layout_data,
                     temp_dir=temp_dir,
-                    use_consistent_margins=use_consistent_margins
+                    use_consistent_margins=use_consistent_margins,
+                    font_buckets={
+                        "bucket_10": font_bucket_10,
+                        "bucket_11": font_bucket_11,
+                        "bucket_12": font_bucket_12,
+                    }
                 )
             else:
                 # Fallback to content_list.json for flow-based rendering
@@ -227,6 +238,36 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="When unchecked, uses consistent 1.5cm margins on all sides"
             )
 
+            gr.Markdown("---")
+            gr.Markdown("### 🎨 Font Size Buckets (bbox height thresholds)")
+
+            font_bucket_10 = gr.Slider(
+                minimum=16,
+                maximum=28,
+                value=22,
+                step=1,
+                label="9pt → 10pt threshold",
+                info="Bbox height below this → 9pt, above → 10pt (default: 22)"
+            )
+
+            font_bucket_11 = gr.Slider(
+                minimum=20,
+                maximum=35,
+                value=30,
+                step=1,
+                label="10pt → 11pt threshold",
+                info="Bbox height below this → 10pt, above → 11pt (default: 30)"
+            )
+
+            font_bucket_12 = gr.Slider(
+                minimum=25,
+                maximum=50,
+                value=40,
+                step=1,
+                label="11pt → 12pt threshold",
+                info="Bbox height below this → 11pt, above → 12pt (default: 40)"
+            )
+
             process_btn = gr.Button(
                 "🚀 Process Document",
                 variant="primary",
@@ -263,7 +304,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
     # Connect processing function
     process_btn.click(
         fn=process_pdf,
-        inputs=[pdf_input, output_format, language, download_raw, keep_original_margins],
+        inputs=[pdf_input, output_format, language, download_raw, keep_original_margins,
+                font_bucket_10, font_bucket_11, font_bucket_12],
         outputs=[output_file, mineru_output]
     )
 
