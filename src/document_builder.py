@@ -257,7 +257,7 @@ class DocumentBuilder:
         """
         self._add_markdown_text(markdown_text)
 
-    def add_from_layout_json(self, layout_data: Dict):
+    def add_from_layout_json(self, layout_data: Dict, use_consistent_margins: bool = False):
         """
         Build PDF from MinerU layout.json with exact positioning.
 
@@ -266,33 +266,66 @@ class DocumentBuilder:
 
         Args:
             layout_data: Parsed layout.json content with pdf_info array
+            use_consistent_margins: If True, use 1.5cm margins with A4 page size;
+                                   otherwise use original page size and margins
         """
         pdf_info = layout_data.get("pdf_info", [])
         if not pdf_info:
             print("Warning: No pdf_info in layout data")
             return
 
+        # Store consistent margins setting for coordinate conversion
+        self._use_consistent_margins_layout = use_consistent_margins
+
         # Create canvas for direct drawing
         self._canvas = pdfcanvas.Canvas(self.output_path)
+
+        # Determine page size and margin offset
+        if use_consistent_margins:
+            # Use A4 with 1.5cm margins
+            page_width, page_height = A4
+            margin = 1.5 * cm
+            self._margin_offset_x = margin
+            self._margin_offset_y = margin
+        else:
+            # Use original page size from layout.json
+            # Will be set per page below
+            self._margin_offset_x = 0
+            self._margin_offset_y = 0
 
         # Process each page
         for page_data in pdf_info:
             page_idx = page_data.get("page_idx", 0)
-            page_size = page_data.get("page_size", [612, 792])  # Default US Letter
-            page_width, page_height = page_size
 
-            # Set page size
-            self._canvas.setPageSize((page_width, page_height))
+            if use_consistent_margins:
+                # Use A4 page size
+                self._canvas.setPageSize(A4)
+            else:
+                # Use original page size from layout.json
+                page_size = page_data.get("page_size", [612, 792])  # Default US Letter
+                page_width, page_height = page_size
+                self._canvas.setPageSize((page_width, page_height))
+
+            # Get the actual page height for coordinate conversion
+            if use_consistent_margins:
+                # Use A4 height
+                current_page_height = A4[1]
+                # Also get original page size for scaling calculations
+                original_page_size = page_data.get("page_size", [612, 792])
+                original_page_height = original_page_size[1]
+            else:
+                current_page_height = page_data.get("page_size", [612, 792])[1]
+                original_page_height = current_page_height
 
             # Process content blocks (preproc_blocks)
             preproc_blocks = page_data.get("preproc_blocks", [])
             for block in preproc_blocks:
-                self._render_block(block, page_height)
+                self._render_block(block, current_page_height, original_page_height)
 
             # Process discarded blocks (page numbers, etc.)
             discarded_blocks = page_data.get("discarded_blocks", [])
             for block in discarded_blocks:
-                self._render_block(block, page_height, is_discarded=True)
+                self._render_block(block, current_page_height, original_page_height, is_discarded=True)
 
             # Move to next page
             self._canvas.showPage()
@@ -301,20 +334,29 @@ class DocumentBuilder:
         self._canvas.save()
         self._canvas = None
 
-    def _render_block(self, block: Dict, page_height: float, is_discarded: bool = False):
+    def _render_block(self, block: Dict, page_height: float, original_page_height: float = None, is_discarded: bool = False):
         """
         Render a single block at its exact position.
 
         Args:
             block: Block data with type, bbox, and lines
             page_height: Height of the page for coordinate conversion
+            original_page_height: Original page height from layout.json (for consistent margins mode)
             is_discarded: Whether this is a discarded block (page number)
         """
         block_type = block.get("type", "text")
         bbox = block.get("bbox", [0, 0, 100, 20])
 
+        # Use original_page_height for coordinate conversion if provided (consistent margins mode)
+        coord_height = original_page_height if original_page_height is not None else page_height
+
         # Convert bbox coordinates from MinerU (top-left origin) to ReportLab (bottom-left origin)
-        x, y, width, height = self._convert_bbox(bbox, page_height)
+        x, y, width, height = self._convert_bbox(bbox, coord_height)
+
+        # Apply margin offset if using consistent margins
+        if hasattr(self, '_use_consistent_margins_layout') and self._use_consistent_margins_layout:
+            x += self._margin_offset_x
+            y += self._margin_offset_y
 
         if block_type == "image":
             self._render_image_block(block, x, y, width, height)
@@ -371,26 +413,17 @@ class DocumentBuilder:
         # Get line data for accurate positioning
         lines_data = block.get("lines", [])
 
+        # Fixed line height for consistent spacing (reduced from 14pt to prevent overlaps)
+        FIXED_LINE_HEIGHT = 12
+
         try:
             for i, text_line in enumerate(text_lines):
                 # Clean text for ReportLab
                 clean_text = text_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-                # Get the actual y-coordinate from the original line's bbox
-                if i < len(lines_data):
-                    line_bbox = lines_data[i].get("bbox", [0, 0, 0, 0])
-                    # Use actual y-coordinate from layout (top-left origin)
-                    # Convert to ReportLab coordinates (bottom-left origin)
-                    if len(line_bbox) >= 4:
-                        # The bbox's y1 is the top of the line in MinerU coords
-                        # In ReportLab: y = page_height - line_top
-                        line_y = page_height - line_bbox[1]
-                    else:
-                        # Fallback to calculated position
-                        line_y = y + height - ((i + 1) * 14)
-                else:
-                    # Fallback to calculated position
-                    line_y = y + height - ((i + 1) * 14)
+                # Use fixed line height from top of block (more consistent, less overlap-prone)
+                # Lines are positioned from top going down
+                line_y = y + height - ((i + 1) * FIXED_LINE_HEIGHT)
 
                 # Create paragraph and wrap it
                 para = Paragraph(clean_text, style)
@@ -403,16 +436,9 @@ class DocumentBuilder:
             # Fallback to simple text rendering
             print(f"Warning: Paragraph failed for '{text_lines[0][:50] if text_lines else ''}...': {e}")
             self._canvas.setFont(self.font_name, 11)
-            # Render all lines as fallback
+            # Render all lines as fallback using same fixed line height
             for i, text_line in enumerate(text_lines):
-                if i < len(lines_data):
-                    line_bbox = lines_data[i].get("bbox", [0, 0, 0, 0])
-                    if len(line_bbox) >= 4:
-                        line_y = page_height - line_bbox[1]
-                    else:
-                        line_y = y + height - ((i + 1) * 14)
-                else:
-                    line_y = y + height - ((i + 1) * 14)
+                line_y = y + height - ((i + 1) * FIXED_LINE_HEIGHT)
                 self._canvas.drawString(x, line_y, text_line[:80])
 
     def _extract_text_lines_from_block(self, block: Dict) -> list:
@@ -854,7 +880,8 @@ def create_pdf_from_mineru(
 def create_pdf_from_layout(
     output_path: str,
     layout_data: Dict,
-    temp_dir: str = None
+    temp_dir: str = None,
+    use_consistent_margins: bool = False
 ) -> str:
     """
     Create PDF from MinerU layout.json with exact positioning.
@@ -866,11 +893,12 @@ def create_pdf_from_layout(
         output_path: Where to save the PDF
         layout_data: Parsed layout.json content with pdf_info array
         temp_dir: Temporary directory containing extracted images
+        use_consistent_margins: If True, use 1.5cm margins with A4 page size
 
     Returns:
         Path to created document
     """
     builder = DocumentBuilder(output_path, temp_dir=temp_dir)
-    builder.add_from_layout_json(layout_data)
+    builder.add_from_layout_json(layout_data, use_consistent_margins=use_consistent_margins)
     # Note: add_from_layout_json() saves the document directly
     return output_path

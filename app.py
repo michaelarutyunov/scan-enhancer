@@ -112,18 +112,23 @@ def process_pdf(
 
             # Build PDF from MinerU output
             # Choose rendering method based on margin preference
-            if keep_original_margins and layout_data:
-                # Use layout.json for exact positioning (preserves original margins)
-                print("DEBUG: Using layout.json for exact positioning (original margins)")
+            if layout_data:
+                # Use layout.json for exact positioning
+                # Apply consistent margins if user requested them
+                use_consistent_margins = not keep_original_margins
+                if keep_original_margins:
+                    print("DEBUG: Using layout.json for exact positioning (original margins)")
+                else:
+                    print("DEBUG: Using layout.json for exact positioning (1.5cm margins)")
                 create_pdf_from_layout(
                     output_path=output_path,
                     layout_data=layout_data,
-                    temp_dir=temp_dir
+                    temp_dir=temp_dir,
+                    use_consistent_margins=use_consistent_margins
                 )
             else:
-                # Use content_list.json for flow-based rendering (consistent 1.5cm margins)
-                reason = "user requested consistent margins" if not keep_original_margins else "layout.json not available"
-                print(f"DEBUG: Using content_list.json for flow-based rendering ({reason})")
+                # Fallback to content_list.json for flow-based rendering
+                print("DEBUG: layout.json not available, using content_list.json for flow-based rendering")
                 create_pdf_from_mineru(
                     output_path=output_path,
                     content=result_data,
