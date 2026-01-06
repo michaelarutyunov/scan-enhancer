@@ -387,14 +387,45 @@ class DocumentBuilder:
 
         return x1, rl_y, width, height
 
+    def _bin_font_size(self, calculated_size: float) -> int:
+        """
+        Bin calculated font size into discrete standard sizes.
+
+        Buckets:
+        - 9pt: 8.5 - 9.5 (footnotes, small text)
+        - 10pt: 9.5 - 10.5 (questions, secondary text)
+        - 11pt: 10.5 - 11.5 (main body text)
+        - 12pt: 11.5 - 13.0 (headers, emphasis)
+        - 14pt: 13.0+ (large headers)
+
+        Args:
+            calculated_size: Raw calculated font size from bbox height
+
+        Returns:
+            Binned font size as integer
+        """
+        if calculated_size < 9.5:
+            return 9
+        elif calculated_size < 10.5:
+            return 10
+        elif calculated_size < 11.5:
+            return 11
+        elif calculated_size < 13.0:
+            return 12
+        else:
+            return 14
+
     def _render_text_block(self, block: Dict, x: float, y: float, width: float, height: float,
                            block_type: str, is_discarded: bool, page_height: float):
         """
         Render a text block at exact position, preserving line breaks and original spacing.
 
-        Calculates font size dynamically from bbox height using calibrated ratio:
-        - Baseline: 23 bbox units = 12pt font
-        - Ratio: 12/23 ≈ 0.52
+        Font sizing strategy:
+        1. Calculate bbox height for each line in the block
+        2. Average the bbox heights for the entire block (smooths noise)
+        3. Convert average to font size using calibrated ratio (23 units = 12pt)
+        4. Bin to discrete font sizes (9, 10, 11, 12, 14pt)
+        5. Apply the same binned size to all lines in the block
 
         Args:
             block: Block data with lines containing spans
@@ -408,42 +439,44 @@ class DocumentBuilder:
         if not text_lines:
             return
 
-        # Get line data for accurate positioning and font sizing
+        # Get line data for font sizing
         lines_data = block.get("lines", [])
 
         # Fixed line height for consistent spacing
         FIXED_LINE_HEIGHT = 14
 
         # Font size calibration ratio: 23 bbox units = 12pt font
-        # This ratio preserves original proportional sizing
         FONT_SIZE_RATIO = 12.0 / 23.0  # ≈ 0.52
+
+        # Step 1: Calculate average bbox height for the entire block
+        bbox_heights = []
+        for line_data in lines_data:
+            line_bbox = line_data.get("bbox", [0, 0, 0, 0])
+            if len(line_bbox) >= 4:
+                bbox_height = line_bbox[3] - line_bbox[1]
+                bbox_heights.append(bbox_height)
+
+        # Step 2: Determine font size for this block
+        if bbox_heights:
+            # Use average bbox height for the block (smooths out noise)
+            avg_bbox_height = sum(bbox_heights) / len(bbox_heights)
+            # Convert to font size using calibrated ratio
+            calculated_size = avg_bbox_height * FONT_SIZE_RATIO
+            # Step 3: Bin to discrete font sizes
+            font_size = self._bin_font_size(calculated_size)
+        else:
+            # Fallback to default sizes
+            font_size = 14 if block_type == "title" else 11
+
+        # Determine font name (bold for titles)
+        font_name = self.font_name_bold if block_type == "title" else self.font_name
 
         try:
             for i, text_line in enumerate(text_lines):
                 # Clean text for ReportLab
                 clean_text = text_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-                # Calculate font size from line's bbox height if available
-                calculated_font_size = None
-                if i < len(lines_data):
-                    line_bbox = lines_data[i].get("bbox", [0, 0, 0, 0])
-                    if len(line_bbox) >= 4:
-                        # Bbox height represents the line height in original PDF units
-                        bbox_height = line_bbox[3] - line_bbox[1]
-                        # Convert to ReportLab point size using calibrated ratio
-                        calculated_font_size = max(8, min(18, bbox_height * FONT_SIZE_RATIO))
-
-                # Determine font size and style
-                if calculated_font_size:
-                    font_size = calculated_font_size
-                else:
-                    # Fallback to default sizes
-                    font_size = 14 if block_type == "title" else 11
-
-                # Determine font name (bold for titles)
-                font_name = self.font_name_bold if block_type == "title" else self.font_name
-
-                # Create style with calculated font size
+                # Step 4: Create style with the binned font size (same for all lines in block)
                 line_style = ParagraphStyle(
                     'Dynamic',
                     parent=self.styles['Normal'],
