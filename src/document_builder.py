@@ -88,24 +88,28 @@ class DocumentBuilder:
             spaceAfter=6,
         )
 
-    def add_from_mineru_json(self, content: Dict):
+    def add_from_mineru_json(self, content: Any):
         """
         Build PDF from MinerU JSON output.
 
         Args:
-            content: MinerU JSON response with structured content
+            content: MinerU JSON response with structured content.
+                     Can be a list of items directly, or a dict with "content" key.
         """
-        # MinerU JSON structure typically has:
-        # - content: list of content items in reading order
-        # - Each item has type: text, image, table, equation, etc.
+        # MinerU JSON structure can be:
+        # 1. A list of content items directly: [{'type': 'text', ...}, ...]
+        # 2. A dict with "content" key: {"content": [{'type': 'text', ...}, ...]}
 
-        if not content or "content" not in content:
+        # Handle if content is already a list
+        if isinstance(content, list):
+            items = content
+        elif isinstance(content, dict) and "content" in content:
+            items = content["content"]
+        else:
             # Fallback: try as markdown
             text_content = content.get("text", "") if isinstance(content, dict) else str(content)
             self._add_markdown_text(text_content)
             return
-
-        items = content["content"]
 
         for item in items:
             item_type = item.get("type", "")
@@ -114,10 +118,16 @@ class DocumentBuilder:
                 self._add_text_block(item.get("text", ""))
             elif item_type == "image":
                 self._add_image(item)
+            elif item_type == "header":
+                # Headers are like text but with different styling
+                self._add_header(item.get("text", ""))
             elif item_type == "table":
                 self._add_table(item)
             elif item_type == "equation":
                 self._add_equation(item.get("text", ""))
+            elif item_type in ("page_footnote", "page_number"):
+                # Skip page-level metadata
+                continue
             else:
                 # Unknown type, try to add as text
                 self._add_text_block(item.get("text", ""))
@@ -136,36 +146,21 @@ class DocumentBuilder:
         if not text or not text.strip():
             return
 
-        # Escape XML special characters for ReportLab
-        clean_text = (
-            text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-        )
+        # Split by lines and add each as a paragraph
+        for line in text.split('\n'):
+            line = line.strip()
+            if line:
+                self.story.append(Paragraph(line, self.body_style))
 
-        # Split into paragraphs
-        paragraphs = clean_text.split("\n\n")
+        self.story.append(Spacer(1, 0.2 * cm))
 
-        for para in paragraphs:
-            para = para.strip()
-            if not para:
-                continue
+    def _add_header(self, text: str):
+        """Add a header/title paragraph."""
+        if not text or not text.strip():
+            return
 
-            # Handle headings
-            if para.startswith("# "):
-                self.story.append(Paragraph(para[2:], self.heading_style))
-            elif para.startswith("## "):
-                self.story.append(Paragraph(para[3:], self.heading_style))
-            else:
-                # Regular paragraph
-                # Preserve line breaks within paragraphs
-                lines = para.split("\n")
-                for line in lines:
-                    line = line.strip()
-                    if line:
-                        self.story.append(Paragraph(line, self.body_style))
-
-            self.story.append(Spacer(1, 0.3 * cm))
+        self.story.append(Paragraph(text, self.heading_style))
+        self.story.append(Spacer(1, 0.3 * cm))
 
     def _add_markdown_text(self, markdown_text: str):
         """Add markdown-formatted text."""
