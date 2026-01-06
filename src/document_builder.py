@@ -5,7 +5,7 @@ Renders MinerU JSON/Markdown output to PDF document.
 import json
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, KeepWithNext
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 from reportlab.pdfbase import pdfmetrics
@@ -274,7 +274,7 @@ class DocumentBuilder:
             text: The text content to add
             style: Optional ParagraphStyle to use (defaults to body_style)
             skip_trailing_space: If True, don't add trailing spacer (saves space before page numbers)
-            keep_with_next: If True, wrap last paragraph in KeepWithNext (keeps with following element like page number)
+            keep_with_next: If True, set keepWithNext=True on last paragraph (keeps with following element like page number)
         """
         if not text or not text.strip():
             return
@@ -289,7 +289,7 @@ class DocumentBuilder:
             para = Paragraph(line, style)
             # Keep the last paragraph with the next element if requested
             if keep_with_next and i == len(lines) - 1:
-                para = KeepWithNext(para)
+                para.keepWithNext = True
             self.story.append(para)
 
         if not skip_trailing_space:
