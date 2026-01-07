@@ -61,9 +61,6 @@ def preprocess_pdf(
         output_path = tempfile.mktemp(suffix="_binarized.pdf")
 
     # Convert PDF to images
-    if progress_callback:
-        progress_callback(0, 0, "Converting PDF to images...")
-
     try:
         images = convert_from_path(input_path, dpi=200)
     except Exception as e:
@@ -71,12 +68,18 @@ def preprocess_pdf(
 
     total_pages = len(images)
 
+    if total_pages == 0:
+        raise ValueError("PDF has no pages")
+
+    if progress_callback:
+        progress_callback(0, total_pages, "Converting PDF to images...")
+
     # Process each page
     binarized_images = []
 
     for i, pil_image in enumerate(images):
         if progress_callback:
-            progress_callback(i + 1, total_pages, f"Binarizing page {i + 1}/{total_pages}...")
+            progress_callback(i, total_pages, f"Binarizing page {i + 1}/{total_pages}...")
 
         # Convert PIL image to numpy array (OpenCV format)
         img_array = np.array(pil_image)

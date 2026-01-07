@@ -104,7 +104,10 @@ def process_pdf(
             temp_pdf_to_cleanup = tempfile.mktemp(suffix="_binarized.pdf")
 
             def progress_cb(page, total, msg):
-                progress(0.05 + (0.1 * page / total), desc=msg)
+                if total > 0:
+                    progress(0.05 + (0.1 * page / total), desc=msg)
+                else:
+                    progress(0.05, desc=msg)
 
             pdf_path = preprocess_pdf(
                 input_path=pdf_path,
