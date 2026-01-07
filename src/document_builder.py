@@ -44,8 +44,8 @@ class DocumentBuilder:
         # TITLES are fixed at 12pt, DISCARDED at 8pt
         # TEXT only: 18-27pt range → 10-12pt fonts
         # 9pt font → ~11pt line height, 10pt → ~12pt, 11pt → ~13pt, 12pt → ~14pt, 14pt → ~17pt
-        self.font_bucket_9 = font_buckets.get("bucket_9", 8.0) if font_buckets else 8.0
-        self.font_bucket_10 = font_buckets.get("bucket_10", 12.0) if font_buckets else 12.0
+        self.font_bucket_9 = font_buckets.get("bucket_9", 17.0) if font_buckets else 17.0
+        self.font_bucket_10 = font_buckets.get("bucket_10", 22.0) if font_buckets else 22.0
         self.font_bucket_11 = font_buckets.get("bucket_11", 28.0) if font_buckets else 28.0
         self.font_bucket_12 = font_buckets.get("bucket_12", 30.0) if font_buckets else 30.0
         self.font_bucket_14 = font_buckets.get("bucket_14", 32.0) if font_buckets else 32.0

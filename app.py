@@ -325,10 +325,10 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             binarize_c_constant = gr.Slider(
                 minimum=0,
                 maximum=30,
-                value=20,
+                value=25,
                 step=1,
                 label="Binarization C constant",
-                info="Subtracted from local mean. Lower=more white (fewer dots), Higher=more black. (default: 20)"
+                info="Subtracted from local mean. Lower=more white (fewer dots), Higher=more black. (default: 25)"
             )
 
             enable_formula = gr.Checkbox(
@@ -343,19 +343,19 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             font_bucket_9 = gr.Slider(
                 minimum=8,
                 maximum=36,
-                value=8.0,
+                value=17.0,
                 step=0.5,
                 label="8pt → 9pt threshold",
-                info="Line height below this → 8pt, above → 9pt (default: 8.0pt)"
+                info="Line height below this → 8pt, above → 9pt (default: 17.0pt)"
             )
 
             font_bucket_10 = gr.Slider(
                 minimum=8,
                 maximum=36,
-                value=12.0,
+                value=22.0,
                 step=0.5,
                 label="9pt → 10pt threshold",
-                info="Line height below this → 9pt, above → 10pt (default: 12.0pt)"
+                info="Line height below this → 9pt, above → 10pt (default: 22.0pt)"
             )
 
             font_bucket_11 = gr.Slider(
