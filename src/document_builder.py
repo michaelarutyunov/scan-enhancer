@@ -41,23 +41,27 @@ class DocumentBuilder:
 
         # Font bucket thresholds (default values in POINTS, not pixels!)
         # These thresholds work with bbox heights converted to points
-        # Typical line heights are ~1.2x the font size
+        # TITLES are fixed at 12pt, DISCARDED at 8pt
+        # TEXT only: 18-27pt range → 10-12pt fonts
         # 9pt font → ~11pt line height, 10pt → ~12pt, 11pt → ~13pt, 12pt → ~14pt, 14pt → ~17pt
-        self.font_bucket_9 = font_buckets.get("bucket_9", 9.0) if font_buckets else 9.0
-        self.font_bucket_10 = font_buckets.get("bucket_10", 12.5) if font_buckets else 12.5
-        self.font_bucket_11 = font_buckets.get("bucket_11", 28.5) if font_buckets else 28.5
-        self.font_bucket_12 = font_buckets.get("bucket_12", 30.0) if font_buckets else 30.0
-        self.font_bucket_14 = font_buckets.get("bucket_14", 31.0) if font_buckets else 31.0
+        self.font_bucket_9 = font_buckets.get("bucket_9", 8.0) if font_buckets else 8.0
+        self.font_bucket_10 = font_buckets.get("bucket_10", 18.0) if font_buckets else 18.0
+        self.font_bucket_11 = font_buckets.get("bucket_11", 21.0) if font_buckets else 21.0
+        self.font_bucket_12 = font_buckets.get("bucket_12", 25.0) if font_buckets else 25.0
+        self.font_bucket_14 = font_buckets.get("bucket_14", 27.0) if font_buckets else 27.0
 
         # DEBUG: Print font bucket thresholds
         print("=" * 80)
         print("DEBUG: Font bucket thresholds being used (in points):")
-        print(f"  bucket_9 (< {self.font_bucket_9}) → 9pt")
-        print(f"  bucket_10 (< {self.font_bucket_10}) → 10pt")
-        print(f"  bucket_11 (< {self.font_bucket_11}) → 11pt")
-        print(f"  bucket_12 (< {self.font_bucket_12}) → 12pt")
-        print(f"  bucket_14 (< {self.font_bucket_14}) → 13pt")
-        print(f"  ≥ {self.font_bucket_14} → 14pt")
+        print(f"  TITLES: fixed at 12pt")
+        print(f"  DISCARDED: fixed at 8pt")
+        print(f"  TEXT thresholds:")
+        print(f"    bucket_9 (< {self.font_bucket_9}) → 9pt")
+        print(f"    bucket_10 (< {self.font_bucket_10}) → 10pt")
+        print(f"    bucket_11 (< {self.font_bucket_11}) → 11pt")
+        print(f"    bucket_12 (< {self.font_bucket_12}) → 12pt")
+        print(f"    bucket_14 (< {self.font_bucket_14}) → 13pt")
+        print(f"    ≥ {self.font_bucket_14} → 14pt")
         print("=" * 80)
 
         # Setup fonts for Cyrillic support
@@ -531,7 +535,16 @@ class DocumentBuilder:
                 bbox_heights.append(bbox_height)
 
         # Step 2 & 3: Determine font size using universal buckets
-        if bbox_heights:
+        # TITLES: Always use 12pt regardless of bbox height
+        # DISCARDED: Always use 8pt (page numbers, footnotes)
+        # TEXT: Use bucket thresholds based on median line height
+        if block_type == "title":
+            # Force titles to 12pt font for consistency
+            font_size = 12
+        elif block_type == "discarded":
+            # Page numbers, footnotes always 8pt
+            font_size = 8
+        elif bbox_heights:
             # Use median (middle value) instead of mode
             # More stable for small samples and handles outliers better
             sorted_heights = sorted(bbox_heights)
@@ -555,10 +568,15 @@ class DocumentBuilder:
                 self._debug_blocks_printed = 0
             if self._debug_blocks_printed < 10:
                 self._debug_blocks_printed += 1
-                print(f"DEBUG Block {self._debug_blocks_printed}: median_bbox={median_bbox_height_px:.1f}px ({median_bbox_height_pt:.1f}pt) → font_size={font_size}pt | lines={len(text_lines)} | text='{text_lines[0][:40] if text_lines else ''}...'")
+                print(f"DEBUG Block {self._debug_blocks_printed}: type={block_type}, median_bbox={median_bbox_height_px:.1f}px ({median_bbox_height_pt:.1f}pt) → font_size={font_size}pt | lines={len(text_lines)} | text='{text_lines[0][:40] if text_lines else ''}...'")
         else:
             # Fallback to default sizes
-            font_size = 14 if block_type == "title" else 11
+            if block_type == "title":
+                font_size = 12  # Titles always 12pt
+            elif block_type == "discarded":
+                font_size = 8  # Discarded always 8pt
+            else:
+                font_size = 11  # Default text
 
         # Determine font name (bold for titles)
         font_name = self.font_name_bold if block_type == "title" else self.font_name
