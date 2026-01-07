@@ -324,10 +324,10 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             binarize_c_constant = gr.Slider(
                 minimum=0,
                 maximum=30,
-                value=10,
+                value=20,
                 step=1,
                 label="Binarization C constant",
-                info="Subtracted from local mean. Lower=more white (fewer dots), Higher=more black. (default: 10)"
+                info="Subtracted from local mean. Lower=more white (fewer dots), Higher=more black. (default: 20)"
             )
 
             gr.Markdown("---")
