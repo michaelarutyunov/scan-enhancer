@@ -238,7 +238,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             keep_original_margins = gr.Checkbox(
                 label="Keep original page margins",
                 value=True,
-                info="When unchecked, uses consistent 1.5cm margins on all sides"
+                info="When unchecked, uses consistent 1cm margins on all sides"
             )
 
             gr.Markdown("---")

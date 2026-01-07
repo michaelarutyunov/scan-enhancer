@@ -290,9 +290,9 @@ class DocumentBuilder:
 
         # Determine page size and margin offset
         if use_consistent_margins:
-            # Use A4 with 1.5cm margins
+            # Use A4 with 1cm margins
             page_width, page_height = A4
-            margin = 1.5 * cm
+            margin = 1 * cm
             self._margin_offset_x = margin
             self._margin_offset_y = margin
         else:
@@ -895,8 +895,8 @@ class DocumentBuilder:
         """
         Save completed document to output path.
         """
-        # Use consistent 1.5cm margins if requested, otherwise use default 2cm
-        margin = 1.5 * cm if self.use_consistent_margins else 2 * cm
+        # Use consistent 1cm margins if requested, otherwise use default 2cm
+        margin = 1 * cm if self.use_consistent_margins else 2 * cm
 
         doc = SimpleDocTemplate(
             self.output_path,
