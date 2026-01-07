@@ -18,25 +18,185 @@ A HuggingFace Spaces application that processes scanned PDF documents using **Mi
 
 - **Multi-Language OCR**: Supports 109 languages including Russian, powered by MinerU
 - **Structure Preservation**: Extracts and preserves headings, paragraphs, lists, tables, and images
+- **Binarization Preprocessing**: Optional noise reduction for improved OCR accuracy
 - **Format Options**: Output as JSON (structured) or Markdown (simple text)
-- **PDF Output**: Generates clean, searchable PDF documents
-- **Cloud Processing**: Uses MinerU cloud API - no local models needed
+- **PDF Output**: Generates clean, searchable PDF documents with properly sized fonts
+- **Cloud Processing**: Uses MinerU cloud API - no local ML models needed
 
 ## How It Works
 
-1. **Upload**: PDF file is uploaded to the application
-2. **API Processing**: File is sent to MinerU cloud API for parsing
-3. **Content Extraction**: Text, images, tables, and formulas are extracted
-4. **PDF Generation**: Clean PDF is assembled with preserved structure
+```
+┌────────────────┐
+│  Upload PDF    │
+│  (max 200MB)   │
+└────────┬───────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│  Optional: Binarization     │
+│  - Remove noise & speckles  │
+│  - Improve contrast         │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│  MinerU Cloud API           │
+│  - OCR with language model  │
+│  - Extract layout/structure │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│  PDF Builder                │
+│  - DPI detection            │
+│  - Coordinate conversion    │
+│  - Font size mapping        │
+│  - ReportLab rendering      │
+└────────┬────────────────────┘
+         │
+         ▼
+┌────────────────┐
+│  Clean PDF     │
+│  + Searchable  │
+│  + Proper fonts│
+└────────────────┘
+```
+
+### Why This Tool?
+
+Scanned PDFs often have:
+- ❌ No selectable/searchable text
+- ❌ Visual noise (speckles, dots)
+- ❌ Inconsistent or tiny fonts
+- ❌ Poor OCR accuracy
+
+This tool produces:
+- ✅ Fully searchable text
+- ✅ Clean, noise-free documents
+- ✅ Properly sized fonts (DPI-aware)
+- ✅ High OCR accuracy
 
 ## Usage
 
+### Quick Start
+
 1. Upload a scanned PDF document (max 200 MB, 600 pages)
-2. Select document language (Russian, English, Chinese, etc.) for better OCR accuracy
-3. Select output format: **JSON → PDF** (structured, with images/tables) or **Markdown → PDF** (simple text)
-4. Click "Process Document"
-5. Wait for processing to complete (typically 10-60 seconds)
-6. Download the cleaned PDF
+2. **Optional**: Enable "Pre-process PDF" to apply binarization for noisy scans
+3. Select document language (Russian, English, Chinese, etc.) for better OCR accuracy
+4. Select output format:
+   - **JSON → PDF** (structured, preserves tables/images)
+   - **Markdown → PDF** (simple text)
+5. **Optional**: Adjust font size buckets if automatic sizing needs tuning
+6. Click "Process Document"
+7. Wait for processing (typically 10-60 seconds)
+8. Download the cleaned PDF
+
+### Advanced Settings
+
+#### Binarization (Noise Reduction)
+
+Enable this for documents with:
+- Background noise or speckles
+- Uneven lighting
+- Low contrast
+
+**Parameters:**
+- **Block size** (11-51, odd): Neighborhood size for local thresholding
+  - Higher = smoother, less sensitive to noise
+  - Lower = more detail, may amplify noise
+  - Default: 31 (good for most documents)
+
+- **C constant** (0-30): Threshold adjustment
+  - **Higher = more black** (lower threshold)
+  - **Lower = more white** (higher threshold)
+  - Default: 20 (cleaner results)
+
+#### Font Size Buckets
+
+Adjust these if fonts appear too small/large:
+- **8pt → 9pt threshold** (default: 11.5pt)
+- **9pt → 10pt threshold** (default: 12.5pt)
+- **10pt → 11pt threshold** (default: 14.0pt)
+- **11pt → 12pt threshold** (default: 16.0pt)
+- **12pt → 14pt threshold** (default: 18.5pt)
+
+**How it works:** The tool measures bbox heights in the original document and maps them to font sizes. If your document has unusually large/small text, adjust these thresholds.
+
+## Technical Overview
+
+### Architecture
+
+The application consists of several components:
+
+```
+app.py (Gradio UI)
+    │
+    ├─→ pdf_preprocessor.py (Optional binarization)
+    │   └─→ pdf2image + OpenCV
+    │
+    ├─→ mineru_processor.py (API client)
+    │   └─→ MinerU Cloud API
+    │
+    └─→ document_builder.py (PDF generation)
+        └─→ ReportLab
+```
+
+### Key Technical Challenges Solved
+
+#### 1. DPI Detection
+
+**Problem:** MinerU returns coordinates in pixels, but PDF rendering requires points. We need to know the scan DPI to convert correctly.
+
+**Solution:** Detect paper size by comparing pixel dimensions to standard sizes:
+- US Letter: 8.5 × 11 inches
+- A4: 8.27 × 11.69 inches
+
+Example: A 1275×1650 pixel PDF → detected as US Letter at 150 DPI.
+
+#### 2. Coordinate Conversion
+
+**Problem:** Multiple coordinate systems:
+- MinerU: pixels, top-left origin
+- ReportLab: points, bottom-left origin
+
+**Solution:** Two-stage conversion:
+```python
+# 1. Pixels to points
+points = pixels / dpi * 72
+
+# 2. Top-left to bottom-left
+y_reportlab = page_height - y_mineru
+```
+
+#### 3. Font Size Mapping
+
+**Problem:** Bbox height includes line spacing (leading), not just font size.
+
+**Solution:** Use threshold buckets based on typical line heights:
+- 9pt font → ~11pt line height
+- 10pt font → ~12pt line height
+- etc.
+
+User-adjustable for different documents.
+
+### Design Decisions
+
+| Decision | Rationale | Alternatives Considered |
+|----------|-----------|------------------------|
+| Use MinerU API | Best OCR accuracy, no local compute | Local Tesseract (less accurate, heavy) |
+| Canvas-based rendering | Exact positioning, preserves layout | Flow-based (simpler, loses positioning) |
+| Threshold buckets | Transparent, user-adjustable | ML prediction (overkill, black box) |
+| Optional binarization | Not all documents need it | Always apply (unnecessary processing) |
+| DPI detection | Automatic, no user input | Ask user (friction, error-prone) |
+
+### Options Not Implemented
+
+1. **Local OCR processing**: Rejected due to computational cost and lower accuracy
+2. **Batch processing**: Rejected to keep UI simple (could be added later)
+3. **Caching**: Rejected due to privacy concerns and storage costs
+4. **Markdown-only**: Rejected because JSON preserves more structure
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed technical documentation.
 
 ## Setup
 
@@ -71,61 +231,39 @@ python app.py
 
 The app will be available at `http://localhost:7860`
 
-## Technical Details
+### Dependencies
 
-### Technology Stack
+**Core:**
+- `gradio>=6.0.0` - UI framework
+- `reportlab>=4.0.0` - PDF generation
+- `requests>=2.31.0` - HTTP client
+- `python-dotenv>=1.0.0` - Environment config
+- `Pillow>=10.0.0` - Image processing
 
-- **API**: MinerU Cloud API (document parsing)
-- **PDF Processing**: ReportLab 4.0+ (PDF generation)
-- **UI Framework**: Gradio 6.0+
-- **HTTP Client**: requests 2.31+
-- **Environment**: python-dotenv 1.0+
+**Optional (for binarization):**
+- `opencv-python>=4.8.0` - Image processing
+- `pdf2image>=1.16.0` - PDF to images
+- `img2pdf>=0.4.4` - Images to PDF
+- `numpy>=1.24.0` - Array operations
 
-### Architecture
-
-```
-┌─────────────────┐
-│  Gradio UI      │
-│  (File Upload)  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  File Validation│
-│  - Size check   │
-│  - Type check   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  MinerU API     │
-│  Cloud Process  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Document       │
-│  Builder (PDF)  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Output (PDF)   │
-└─────────────────┘
-```
-
-### Project Structure
+## Project Structure
 
 ```
 scan-enhancer/
 ├── src/
-│   ├── mineru_processor.py  # MinerU API client
-│   ├── document_builder.py  # PDF output from API results
-│   └── utils.py             # Helper functions
-├── app.py                   # Main Gradio application
-├── requirements.txt         # Python dependencies
-├── .env.example             # Environment variables template
-└── README.md               # This file
+│   ├── mineru_processor.py   # MinerU API client
+│   ├── document_builder.py   # PDF output from API results
+│   ├── pdf_preprocessor.py   # Optional binarization
+│   └── utils.py              # Helper functions
+├── fonts/
+│   ├── DejaVuSans.ttf        # Bundled Cyrillic font
+│   └── DejaVuSans-Bold.ttf   # Bundled bold font
+├── app.py                    # Main Gradio application
+├── requirements.txt          # Python dependencies
+├── packages.txt              # System dependencies (poppler)
+├── .env.example              # Environment variables template
+├── README.md                 # This file
+└── ARCHITECTURE.md           # Detailed technical documentation
 ```
 
 ## API Limits
@@ -134,10 +272,51 @@ scan-enhancer/
 |-------|-------|
 | File size | 200 MB per file |
 | Pages per file | 600 pages |
-| Daily quota | 2000 pages high-priority (varies by plan) |
+| Daily quota | Varies by API plan |
 | Processing timeout | 10 minutes |
 
 *Get your API key at https://mineru.net/*
+
+## Troubleshooting
+
+### Fonts appear too small/large
+
+The automatic DPI detection may be incorrect for your document. Try:
+1. Check the debug output for detected DPI
+2. Manually adjust font size buckets in the UI
+3. For unusual paper sizes, you may need to tweak thresholds
+
+### Poor OCR accuracy
+
+1. Enable binarization preprocessing
+2. Adjust binarization parameters (try C=15-25)
+3. Ensure correct document language is selected
+4. For very old documents, try increasing block size to 41-51
+
+### Binarization not available
+
+The binarization feature requires OpenCV. If disabled:
+- Check that opencv-python is installed
+- Verify pdf2image can find Poppler (system dependency)
+- See dependencies section above
+
+### Images missing in output
+
+This is rare but can happen if:
+- MinerU failed to extract images (check raw ZIP)
+- Image paths in layout.json are incorrect
+- File a bug with the document attached
+
+## Contributing
+
+Bug reports and feature requests are welcome! Please:
+
+1. Check [ARCHITECTURE.md](ARCHITECTURE.md) for technical context
+2. Search existing issues first
+3. Include:
+   - Steps to reproduce
+   - Expected vs actual behavior
+   - Sample document (if possible, remove sensitive content)
 
 ## License
 
@@ -148,3 +327,9 @@ See [LICENSE](LICENSE) file for details.
 - [MinerU](https://mineru.net/) for the document parsing API
 - [Gradio](https://gradio.app/) for the UI framework
 - [ReportLab](https://www.reportlab.com/) for PDF generation
+- [OpenCV](https://opencv.org/) for image processing
+- [DejaVu fonts](https://dejavu-fonts.github.io/) for Cyrillic support
+
+---
+
+**For detailed technical documentation, design decisions, and implementation notes, see [ARCHITECTURE.md](ARCHITECTURE.md).**
