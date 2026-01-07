@@ -30,7 +30,7 @@ class DocumentBuilder:
             temp_dir: Optional temporary directory containing extracted images
             use_consistent_margins: If True, use 1.5cm margins; otherwise use 2cm default
             font_buckets: Optional dict with custom bbox height thresholds for font sizing
-                         Keys: "bucket_10", "bucket_11", "bucket_12"
+                         Keys: "bucket_9", "bucket_10", "bucket_11", "bucket_12"
         """
         self.output_path = output_path
         self.temp_dir = temp_dir
@@ -40,9 +40,10 @@ class DocumentBuilder:
         self.temp_files = []
 
         # Font bucket thresholds (default values)
-        self.font_bucket_10 = font_buckets.get("bucket_10", 22) if font_buckets else 22
-        self.font_bucket_11 = font_buckets.get("bucket_11", 30) if font_buckets else 30
-        self.font_bucket_12 = font_buckets.get("bucket_12", 40) if font_buckets else 40
+        self.font_bucket_9 = font_buckets.get("bucket_9", 23) if font_buckets else 23
+        self.font_bucket_10 = font_buckets.get("bucket_10", 28) if font_buckets else 28
+        self.font_bucket_11 = font_buckets.get("bucket_11", 33) if font_buckets else 33
+        self.font_bucket_12 = font_buckets.get("bucket_12", 41) if font_buckets else 41
 
         # Setup fonts for Cyrillic support
         self._setup_fonts()
@@ -399,8 +400,9 @@ class DocumentBuilder:
         Direct mapping from bbox height to font size using universal standard buckets.
 
         Thresholds (dynamic, set via font_buckets parameter):
-        - < 18 units         → 9pt  (footnotes, page numbers, smallest text)
-        - 18 - bucket_10    → 10pt (main body text, questions, proverbs)
+        - < 18 units         → 8pt  (smallest footnotes)
+        - 18 - bucket_9     → 9pt  (footnotes, page numbers)
+        - bucket_9 - bucket_10  → 10pt (main body text, questions, proverbs)
         - bucket_10 - bucket_11 → 11pt (section headers like "Литовские", "Немецкие")
         - bucket_11 - bucket_12 → 12pt (main title or large headers)
         - > bucket_12       → 13pt (very large headers)
@@ -412,6 +414,8 @@ class DocumentBuilder:
             Font size in points
         """
         if bbox_height < 18:
+            return 8
+        elif bbox_height < self.font_bucket_9:
             return 9
         elif bbox_height < self.font_bucket_10:
             return 10
