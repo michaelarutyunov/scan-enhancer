@@ -19,6 +19,7 @@ load_dotenv()
 from src.mineru_processor import MinerUAPIProcessor
 from src.document_builder import create_pdf_from_mineru, create_pdf_from_layout
 from src.utils import validate_pdf_path, check_file_size_limit, clean_filename
+from src.pdf_preprocessor import preprocess_pdf, is_available
 
 # Initialize MinerU API processor
 # API key should be set in HF Space secrets as MINERU_API_KEY
@@ -37,6 +38,7 @@ def process_pdf(
     language: str,
     download_raw: bool,
     keep_original_margins: bool,
+    binarize_enabled: bool,
     font_bucket_9: float,
     font_bucket_10: float,
     font_bucket_11: float,
@@ -53,6 +55,7 @@ def process_pdf(
         language: Language code for OCR (e.g., "ru" for Russian)
         download_raw: If True, also return raw MinerU output ZIP
         keep_original_margins: If True, use exact positioning; if False, use consistent 1cm margins
+        binarize_enabled: If True, preprocess PDF with binarization before sending to MinerU
         font_bucket_9: Bbox height threshold for 9pt font (default 23)
         font_bucket_10: Bbox height threshold for 10pt font (default 28)
         font_bucket_11: Bbox height threshold for 11pt font (default 33)
@@ -73,10 +76,11 @@ def process_pdf(
         )
 
     pdf_path = pdf_file.name
+    temp_pdf_to_cleanup = None
 
     try:
         # Validate file
-        progress(0.05, desc="Validating PDF file...")
+        progress(0.02, desc="Validating PDF file...")
 
         # Check file extension
         if not validate_pdf_path(pdf_path):
@@ -87,10 +91,33 @@ def process_pdf(
         if not is_valid:
             raise gr.Error(msg)
 
-        progress(0.1, desc=f"Processing PDF ({size_mb:.1f} MB)...")
+        # Optionally preprocess PDF with binarization
+        if binarize_enabled:
+            if not is_available():
+                raise gr.Error(
+                    "Binarization preprocessing is not available. "
+                    "Required dependencies may not be installed."
+                )
+
+            progress(0.05, desc="Preprocessing PDF (binarization)...")
+            import tempfile
+            temp_pdf_to_cleanup = tempfile.mktemp(suffix="_binarized.pdf")
+
+            def progress_cb(page, total, msg):
+                progress(0.05 + (0.1 * page / total), desc=msg)
+
+            pdf_path = preprocess_pdf(
+                input_path=pdf_path,
+                output_path=temp_pdf_to_cleanup,
+                progress_callback=progress_cb
+            )
+        else:
+            pdf_path = pdf_file.name
+
+        progress(0.15, desc=f"Processing PDF ({size_mb:.1f} MB)...")
 
         # Submit to MinerU API
-        progress(0.15, desc="Submitting to MinerU API...")
+        progress(0.2, desc="Submitting to MinerU API...")
         result = mineru.process_pdf(pdf_path, output_format=output_format, language=language)
 
         task_id = result.get("task_id")
@@ -98,7 +125,7 @@ def process_pdf(
         result_data = result.get("result", {})
 
         if status == "completed":
-            progress(0.8, desc="Parsing complete! Building PDF...")
+            progress(0.85, desc="Parsing complete! Building PDF...")
 
             # Get the parsed content
             temp_dir = result.get("temp_dir")
@@ -156,6 +183,13 @@ def process_pdf(
 
             progress(1.0, desc="Complete!")
 
+            # Clean up temporary binarized PDF if it was created
+            if temp_pdf_to_cleanup and os.path.exists(temp_pdf_to_cleanup):
+                try:
+                    os.remove(temp_pdf_to_cleanup)
+                except:
+                    pass
+
             # Return both PDF and optionally the ZIP file
             if download_raw and zip_path and os.path.exists(zip_path):
                 return output_path, zip_path
@@ -167,8 +201,20 @@ def process_pdf(
             raise gr.Error(f"Processing failed: {error_msg}")
 
     except gr.Error:
+        # Clean up on error
+        if temp_pdf_to_cleanup and os.path.exists(temp_pdf_to_cleanup):
+            try:
+                os.remove(temp_pdf_to_cleanup)
+            except:
+                pass
         raise
     except Exception as e:
+        # Clean up on error
+        if temp_pdf_to_cleanup and os.path.exists(temp_pdf_to_cleanup):
+            try:
+                os.remove(temp_pdf_to_cleanup)
+            except:
+                pass
         raise gr.Error(f"Processing failed: {str(e)}")
 
 
@@ -286,6 +332,12 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="When unchecked, uses consistent 1cm margins on all sides"
             )
 
+            binarize_enabled = gr.Checkbox(
+                label="Pre-process PDF (binarize before sending to API)",
+                value=False,
+                info="Improves text clarity for noisy scans. Adds ~10-20 seconds."
+            )
+
         with gr.Column():
             pdf_input = gr.File(
                 label="Upload PDF Document",
@@ -320,7 +372,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
     # Connect processing function
     process_btn.click(
         fn=process_pdf,
-        inputs=[pdf_input, output_format, language, download_raw, keep_original_margins,
+        inputs=[pdf_input, output_format, language, download_raw, keep_original_margins, binarize_enabled,
                 font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14],
         outputs=[output_file, mineru_output]
     )
