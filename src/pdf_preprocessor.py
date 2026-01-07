@@ -106,7 +106,8 @@ def preprocess_pdf(
 
         # Convert back to PIL Image for img2pdf
         from PIL import Image
-        binary_pil = Image.fromarray(binary)
+        # img2pdf requires RGB mode, convert from binary
+        binary_pil = Image.fromarray(binary).convert("RGB")
         binarized_images.append(binary_pil)
 
     # Save binarized images as PDF

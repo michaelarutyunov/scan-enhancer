@@ -273,6 +273,27 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             gr.Markdown("---")
+            gr.Markdown("### ⚙️ Additional Settings")
+
+            download_raw = gr.Checkbox(
+                label="Download raw MinerU output (for diagnostics)",
+                value=False,
+                info="Enable to also download the raw MinerU ZIP file for debugging"
+            )
+
+            keep_original_margins = gr.Checkbox(
+                label="Keep original page margins",
+                value=True,
+                info="When unchecked, uses consistent 1cm margins on all sides"
+            )
+
+            binarize_enabled = gr.Checkbox(
+                label="Pre-process PDF (binarize before sending to API)",
+                value=False,
+                info="Improves text clarity for noisy scans. Adds ~10-20 seconds."
+            )
+
+            gr.Markdown("---")
             gr.Markdown("### Font Size Buckets (bbox height thresholds)")
 
             font_bucket_9 = gr.Slider(
@@ -318,27 +339,6 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 step=0.5,
                 label="12pt → 14pt threshold",
                 info="Bbox height below this → 12pt, above → 14pt (default: 50)"
-            )
-
-            gr.Markdown("---")
-            gr.Markdown("### ⚙️ Additional Settings")
-
-            download_raw = gr.Checkbox(
-                label="Download raw MinerU output (for diagnostics)",
-                value=False,
-                info="Enable to also download the raw MinerU ZIP file for debugging"
-            )
-
-            keep_original_margins = gr.Checkbox(
-                label="Keep original page margins",
-                value=True,
-                info="When unchecked, uses consistent 1cm margins on all sides"
-            )
-
-            binarize_enabled = gr.Checkbox(
-                label="Pre-process PDF (binarize before sending to API)",
-                value=False,
-                info="Improves text clarity for noisy scans. Adds ~10-20 seconds."
             )
 
         with gr.Column():
