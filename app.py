@@ -352,37 +352,37 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             font_bucket_10 = gr.Slider(
                 minimum=8,
                 maximum=36,
-                value=18.0,
+                value=12.0,
                 step=0.5,
                 label="9pt → 10pt threshold",
-                info="Line height below this → 9pt, above → 10pt (default: 18.0pt)"
+                info="Line height below this → 9pt, above → 10pt (default: 12.0pt)"
             )
 
             font_bucket_11 = gr.Slider(
                 minimum=8,
                 maximum=36,
-                value=21.0,
+                value=28.0,
                 step=0.5,
                 label="10pt → 11pt threshold",
-                info="Line height below this → 10pt, above → 11pt (default: 21.0pt)"
+                info="Line height below this → 10pt, above → 11pt (default: 28.0pt)"
             )
 
             font_bucket_12 = gr.Slider(
                 minimum=8,
                 maximum=36,
-                value=25.0,
+                value=30.0,
                 step=0.5,
                 label="11pt → 12pt threshold",
-                info="Line height below this → 11pt, above → 12pt (default: 25.0pt)"
+                info="Line height below this → 11pt, above → 12pt (default: 30.0pt)"
             )
 
             font_bucket_14 = gr.Slider(
                 minimum=8,
                 maximum=36,
-                value=27.0,
+                value=32.0,
                 step=0.5,
                 label="12pt → 14pt threshold",
-                info="Line height below this → 12pt, above → 14pt (default: 27.0pt)"
+                info="Line height below this → 12pt, above → 14pt (default: 32.0pt)"
             )
 
         with gr.Column():
