@@ -326,35 +326,33 @@ class DocumentBuilder:
         for page_data in pdf_info:
             page_idx = page_data.get("page_idx", 0)
 
-            if use_consistent_margins:
-                # Use A4 page size
-                self._canvas.setPageSize(A4)
-            else:
-                # Use original page size from layout.json
-                page_size = page_data.get("page_size", [612, 792])  # Default US Letter
-                page_width, page_height = page_size
-                self._canvas.setPageSize((page_width, page_height))
+            # Get original page size in pixels from MinerU
+            original_page_size_px = page_data.get("page_size", [612, 792])
 
-            # Get the actual page height for coordinate conversion
             if use_consistent_margins:
-                # Use A4 height
-                current_page_height = A4[1]
-                # Also get original page size for scaling calculations
-                original_page_size = page_data.get("page_size", [612, 792])
-                original_page_height = original_page_size[1]
+                # Use A4 page size (in points)
+                self._canvas.setPageSize(A4)
+                current_page_width, current_page_height = A4
+                # Original page size in pixels (for DPI-based conversion)
+                original_page_width_px, original_page_height_px = original_page_size_px
             else:
-                current_page_height = page_data.get("page_size", [612, 792])[1]
-                original_page_height = current_page_height
+                # Convert original page size from pixels to points
+                # This ensures the canvas is sized correctly for ReportLab
+                original_page_width_px, original_page_height_px = original_page_size_px
+                page_width_pt = original_page_width_px / self._dpi * 72
+                page_height_pt = original_page_height_px / self._dpi * 72
+                self._canvas.setPageSize((page_width_pt, page_height_pt))
+                current_page_width, current_page_height = page_width_pt, page_height_pt
 
             # Process content blocks (preproc_blocks)
             preproc_blocks = page_data.get("preproc_blocks", [])
             for block in preproc_blocks:
-                self._render_block(block, current_page_height, original_page_height)
+                self._render_block(block, current_page_height, original_page_height_px)
 
             # Process discarded blocks (page numbers, etc.)
             discarded_blocks = page_data.get("discarded_blocks", [])
             for block in discarded_blocks:
-                self._render_block(block, current_page_height, original_page_height, is_discarded=True)
+                self._render_block(block, current_page_height, original_page_height_px, is_discarded=True)
 
             # Move to next page
             self._canvas.showPage()
@@ -363,24 +361,22 @@ class DocumentBuilder:
         self._canvas.save()
         self._canvas = None
 
-    def _render_block(self, block: Dict, page_height: float, original_page_height: float = None, is_discarded: bool = False):
+    def _render_block(self, block: Dict, page_height: float, original_page_height_px: float = None, is_discarded: bool = False):
         """
         Render a single block at its exact position.
 
         Args:
             block: Block data with type, bbox, and lines
-            page_height: Height of the page for coordinate conversion
-            original_page_height: Original page height from layout.json (for consistent margins mode)
+            page_height: Height of the page in points for coordinate conversion
+            original_page_height_px: Original page height in pixels from layout.json
             is_discarded: Whether this is a discarded block (page number)
         """
         block_type = block.get("type", "text")
         bbox = block.get("bbox", [0, 0, 100, 20])
 
-        # Use original_page_height for coordinate conversion if provided (consistent margins mode)
-        coord_height = original_page_height if original_page_height is not None else page_height
-
-        # Convert bbox coordinates from MinerU (top-left origin) to ReportLab (bottom-left origin)
-        x, y, width, height = self._convert_bbox(bbox, coord_height)
+        # Convert bbox coordinates from MinerU (pixels, top-left origin) to ReportLab (points, bottom-left origin)
+        # _convert_bbox handles pixel-to-point conversion internally using self._dpi
+        x, y, width, height = self._convert_bbox(bbox, page_height)
 
         # Apply margin offset if using consistent margins
         if hasattr(self, '_use_consistent_margins_layout') and self._use_consistent_margins_layout:
@@ -435,26 +431,33 @@ class DocumentBuilder:
 
     def _convert_bbox(self, bbox: List[float], page_height: float) -> Tuple[float, float, float, float]:
         """
-        Convert MinerU bbox to ReportLab coordinates.
+        Convert MinerU bbox from pixels to ReportLab coordinates in points.
 
-        MinerU bbox: [x1, y1, x2, y2] with origin at top-left
-        ReportLab: origin at bottom-left
+        MinerU bbox: [x1, y1, x2, y2] in pixels with origin at top-left
+        ReportLab: points with origin at bottom-left
 
         Args:
-            bbox: [x1, y1, x2, y2] coordinates
-            page_height: Height of the page
+            bbox: [x1, y1, x2, y2] coordinates in pixels
+            page_height: Height of the page in points
 
         Returns:
-            (x, y, width, height) in ReportLab coordinates
+            (x, y, width, height) in ReportLab coordinates (points)
         """
         x1, y1, x2, y2 = bbox
-        width = x2 - x1
-        height = y2 - y1
+
+        # Convert from pixels to points
+        x1_pt = x1 / self._dpi * 72
+        y1_pt = y1 / self._dpi * 72
+        x2_pt = x2 / self._dpi * 72
+        y2_pt = y2 / self._dpi * 72
+
+        width = x2_pt - x1_pt
+        height = y2_pt - y1_pt
 
         # Convert y coordinate: ReportLab y = page_height - MinerU y2 (bottom of block)
-        rl_y = page_height - y2
+        rl_y = page_height - y2_pt
 
-        return x1, rl_y, width, height
+        return x1_pt, rl_y, width, height
 
     def _get_font_size_from_bbox(self, bbox_height: float) -> int:
         """
