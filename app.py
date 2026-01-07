@@ -34,7 +34,6 @@ except ValueError as e:
 
 def process_pdf(
     pdf_file,
-    output_format: str,
     language: str,
     download_raw: bool,
     keep_original_margins: bool,
@@ -47,6 +46,8 @@ def process_pdf(
     font_bucket_11: float,
     font_bucket_12: float,
     font_bucket_14: float,
+    enable_ocr_correction: bool,
+    quality_cutoff: float,
     progress=gr.Progress()
 ) -> tuple:
     """
@@ -54,7 +55,6 @@ def process_pdf(
 
     Args:
         pdf_file: Uploaded PDF file object
-        output_format: "json" or "markdown" - MinerU output format
         language: Language code for OCR (e.g., "ru" for Russian)
         download_raw: If True, also return raw MinerU output ZIP
         keep_original_margins: If True, use exact positioning; if False, use consistent 1cm margins
@@ -141,6 +141,8 @@ def process_pdf(
 
         # Submit to MinerU API
         progress(0.2, desc="Submitting to MinerU API...")
+        # Hardcoded to JSON format for best structure preservation
+        output_format = "json"
         result = mineru.process_pdf(pdf_path, output_format=output_format, language=language, enable_formula=enable_formula)
 
         task_id = result.get("task_id")
@@ -148,12 +150,59 @@ def process_pdf(
         result_data = result.get("result", {})
 
         if status == "completed":
-            progress(0.85, desc="Parsing complete! Building PDF...")
-
             # Get the parsed content
             temp_dir = result.get("temp_dir")
             zip_path = result.get("zip_path")
             layout_data = result.get("layout_data")  # For exact positioning
+
+            # Check for low-confidence items if OCR correction enabled
+            if enable_ocr_correction and layout_data:
+                progress(0.85, desc="Checking OCR quality...")
+
+                from src.ocr_postprocessor import OCRPostProcessor
+
+                # Extract low-confidence items from layout.json
+                layout_json_path = os.path.join(temp_dir, "layout.json")
+                processor = OCRPostProcessor(layout_json_path, quality_cutoff)
+                processor.load_layout()
+                low_conf_items = processor.extract_low_confidence_items()
+
+                if low_conf_items:
+                    # Found low-confidence items - pause for user correction
+                    df = processor.to_dataframe()
+
+                    # Store state for later use when Apply Corrections is clicked
+                    state_data = {
+                        "processor": processor,
+                        "temp_dir": temp_dir,
+                        "pdf_path": pdf_path,
+                        "keep_original_margins": keep_original_margins,
+                        "font_buckets": {
+                            "bucket_9": font_bucket_9,
+                            "bucket_10": font_bucket_10,
+                            "bucket_11": font_bucket_11,
+                            "bucket_12": font_bucket_12,
+                            "bucket_14": font_bucket_14,
+                        }
+                    }
+
+                    status_msg = f"✅ MinerU completed. Found {len(low_conf_items)} low-confidence items. Please review and correct below."
+
+                    # Return early - don't generate PDF yet
+                    # Return: (output_file, binarized, mineru_zip, corrections_table, correction_panel_visible, state, status, correction_status_visible)
+                    return (
+                        None,  # No final PDF yet
+                        binarized_pdf_path,
+                        zip_path if download_raw else None,
+                        df,  # Corrections table data
+                        gr.update(visible=True),  # Show correction panel
+                        state_data,  # Store for apply_corrections
+                        status_msg,
+                        gr.update(visible=False)  # Hide correction status initially
+                    )
+
+            # No OCR correction needed - proceed directly to PDF generation
+            progress(0.85, desc="Parsing complete! Building PDF...")
 
             # Create output filename with timestamp
             base_name = clean_filename(os.path.basename(pdf_path))
@@ -214,11 +263,17 @@ def process_pdf(
                 except:
                     pass
 
-            # Return (output PDF, binarized PDF path or None, ZIP path or None)
-            if download_raw and zip_path and os.path.exists(zip_path):
-                return output_path, binarized_pdf_path, zip_path
-            else:
-                return output_path, binarized_pdf_path, None
+            # Return (output PDF, binarized PDF, ZIP, corrections_table, correction_panel, state, status, correction_status)
+            return (
+                output_path,  # Final PDF
+                binarized_pdf_path,
+                zip_path if (download_raw and zip_path and os.path.exists(zip_path)) else None,
+                None,  # No corrections table
+                gr.update(visible=False),  # Hide correction panel
+                None,  # No state needed
+                "✅ Processing complete!",
+                gr.update(visible=False)  # Hide correction status
+            )
         else:
             # Extract error message if available
             error_msg = result_data.get("error", status)
@@ -240,6 +295,60 @@ def process_pdf(
             except:
                 pass
         raise gr.Error(f"Processing failed: {str(e)}")
+
+
+def apply_corrections_and_generate_pdf(
+    corrections_df,
+    state_data
+):
+    """
+    Apply user corrections and generate final PDF.
+
+    Args:
+        corrections_df: Edited DataFrame from corrections_table
+        state_data: Dict with keys: processor, temp_dir, pdf_path,
+                    keep_original_margins, font_buckets
+
+    Returns:
+        Tuple of (final_pdf_path, status_message)
+    """
+    try:
+        if state_data is None:
+            return None, "❌ Error: No state data available. Please run OCR processing first."
+
+        processor = state_data.get("processor")
+        temp_dir = state_data.get("temp_dir")
+        pdf_path = state_data.get("pdf_path")
+        keep_original_margins = state_data.get("keep_original_margins", True)
+        font_buckets = state_data.get("font_buckets", {})
+
+        if processor is None:
+            return None, "❌ Error: OCR processor not found in state."
+
+        # Apply corrections to layout.json
+        processor.from_dataframe(corrections_df)
+        status_msg, num_changes = processor.apply_corrections(backup=True)
+
+        # Load corrected layout
+        layout_data = processor.load_layout()
+
+        # Generate PDF from corrected layout
+        output_pdf = os.path.join(temp_dir, "output_corrected.pdf")
+
+        use_consistent_margins = not keep_original_margins
+        create_pdf_from_layout(
+            output_path=output_pdf,
+            layout_data=layout_data,
+            temp_dir=temp_dir,
+            use_consistent_margins=use_consistent_margins,
+            font_buckets=font_buckets
+        )
+
+        final_status = f"{status_msg}\n✅ Final PDF generated successfully!"
+        return output_pdf, final_status
+
+    except Exception as e:
+        return None, f"❌ Error applying corrections: {str(e)}"
 
 
 # Create Gradio interface
@@ -280,16 +389,6 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 ],
                 value="ru",
                 info="Select the primary language for better OCR accuracy"
-            )
-
-            gr.Markdown("### Output Format")
-            output_format = gr.Radio(
-                choices=[
-                    ("JSON → PDF (Structured, preserves tables/images)", "json"),
-                    ("Markdown → PDF (Simple text-focused)", "markdown")
-                ],
-                value="json",
-                info="JSON preserves more structure, Markdown is simpler"
             )
 
             gr.Markdown("---")
@@ -335,6 +434,25 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 label="Enable formula detection",
                 value=True,
                 info="Disable if text is being misclassified as equations (e.g., single letters or special characters)"
+            )
+
+            gr.Markdown("---")
+            gr.Markdown("### OCR Quality Control")
+
+            enable_ocr_correction = gr.Checkbox(
+                label="OCR Manual Correction",
+                value=True,
+                info="Review and correct low-confidence OCR results before generating PDF"
+            )
+
+            quality_cutoff = gr.Slider(
+                minimum=0.0,
+                maximum=1.0,
+                value=0.95,
+                step=0.05,
+                label="Quality Cut-off",
+                info="Confidence threshold (lower = more items to review). Recommended: 0.85-0.95",
+                interactive=True
             )
 
             gr.Markdown("---")
@@ -393,7 +511,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             process_btn = gr.Button(
-                "🚀 Process Document",
+                "🔍 De-noise & OCR",
                 variant="primary",
                 size="lg"
             )
@@ -404,13 +522,50 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 visible=False
             )
 
-            output_file = gr.File(
-                label="📥 Download OCR Processed Document",
-                type="filepath"
-            )
-
             mineru_output = gr.File(
                 label="🔧 Download Raw MinerU Output (ZIP)",
+                type="filepath",
+                visible=False
+            )
+
+            # State storage for OCR correction workflow
+            processor_state = gr.State()
+
+            # Main status message
+            main_status = gr.Textbox(
+                label="Status",
+                interactive=False,
+                visible=True
+            )
+
+            # Low Confidence Text correction panel (hidden initially)
+            with gr.Column(visible=False) as correction_panel:
+                gr.Markdown("### Low Confidence Text")
+                gr.Markdown("Review and correct OCR errors below. Edit the 'Correction' column.")
+
+                corrections_table = gr.DataFrame(
+                    headers=["Page", "Score", "Type", "Original", "Correction"],
+                    datatype=["number", "number", "str", "str", "str"],
+                    col_count=(5, "fixed"),
+                    row_count=(10, "dynamic"),
+                    interactive=True,
+                    wrap=True,
+                    label=""
+                )
+
+                apply_corrections_btn = gr.Button(
+                    "✅ Apply Corrections",
+                    variant="primary"
+                )
+
+                correction_status = gr.Textbox(
+                    label="Correction Status",
+                    interactive=False,
+                    visible=False
+                )
+
+            output_file = gr.File(
+                label="📥 Download Final PDF",
                 type="filepath",
                 visible=False
             )
@@ -429,13 +584,46 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
         outputs=[binarized_file]
     )
 
+    # Grey out quality_cutoff when OCR correction is disabled
+    enable_ocr_correction.change(
+        fn=lambda enabled: gr.update(interactive=enabled),
+        inputs=[enable_ocr_correction],
+        outputs=[quality_cutoff]
+    )
+
     # Connect processing function
     process_btn.click(
         fn=process_pdf,
-        inputs=[pdf_input, output_format, language, download_raw, keep_original_margins, binarize_enabled,
+        inputs=[pdf_input, language, download_raw, keep_original_margins, binarize_enabled,
                 binarize_block_size, binarize_c_constant, enable_formula,
-                font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14],
-        outputs=[output_file, binarized_file, mineru_output]
+                font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14,
+                enable_ocr_correction, quality_cutoff],
+        outputs=[
+            output_file,           # Final PDF (None if corrections needed)
+            binarized_file,        # Binarized PDF
+            mineru_output,         # MinerU ZIP
+            corrections_table,     # DataFrame for corrections
+            correction_panel,      # Show/hide corrections panel
+            processor_state,       # Store processor instance
+            main_status,           # Status message
+            correction_status      # Correction results
+        ]
+    )
+
+    # Connect correction apply function
+    apply_corrections_btn.click(
+        fn=apply_corrections_and_generate_pdf,
+        inputs=[
+            corrections_table,
+            processor_state
+        ],
+        outputs=[
+            output_file,
+            correction_status
+        ]
+    ).then(
+        fn=lambda: gr.update(visible=True),
+        outputs=output_file
     )
 
 

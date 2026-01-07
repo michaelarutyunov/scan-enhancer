@@ -18,17 +18,19 @@ This document describes the system architecture, data flow, design decisions, an
 ## System Overview
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Gradio     │     │   Optional   │     │    MinerU    │     │   Document   │
-│     UI       │────▶│  Binarize    │────▶│     API      │────▶│   Builder    │
-│  (app.py)    │     │(pdf_preproc) │     │  (External)  │     │(document_    │
-│              │     │              │     │              │     │  builder.py) │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-       │                                                                 │
-       │                            ┌──────────────┐                        │
-       └───────────────────────────▶│  Output PDF  │◀───────────────────────┘
-                                    │  (.pdf file)  │
-                                    └──────────────┘
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│   Gradio     │     │   Optional   │     │    MinerU    │     │     OCR      │     │   Document   │
+│     UI       │────▶│  Binarize    │────▶│     API      │────▶│ Postprocess  │────▶│   Builder    │
+│  (app.py)    │     │(pdf_preproc) │     │  (External)  │     │  (Manual)    │     │(document_    │
+│              │     │              │     │              │     │(ocr_postproc)│     │  builder.py) │
+└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+       │                                                                 │                      │
+       │                                                          User corrections              │
+       │                                                          (if enabled)                  │
+       │                                          ┌──────────────┐                             │
+       └─────────────────────────────────────────▶│  Output PDF  │◀────────────────────────────┘
+                                                  │  (.pdf file)  │
+                                                  └──────────────┘
 ```
 
 ### Core Problem Solved
@@ -56,10 +58,14 @@ The application processes scanned PDF documents to:
 **Key Parameters:**
 - `output_format`: "json" (structured) or "markdown" (simple)
 - `language`: Document language for OCR accuracy
+- `enable_formula`: Enable/disable MinerU formula detection (default: true)
 - `binarize_enabled`: Whether to apply binarization preprocessing
 - `binarize_block_size`: Adaptive thresholding neighborhood size (11-51, odd)
-- `binarize_c_constant`: Threshold constant subtracted from mean (0-30)
-- `font_bucket_*`: Thresholds for mapping bbox heights to font sizes
+- `binarize_c_constant`: Threshold constant subtracted from mean (0-30, default: 25)
+- `font_bucket_*`: Thresholds for mapping bbox heights to font sizes (default: 17, 22, 28, 30, 32)
+- `keep_original_margins`: Use exact page positioning or consistent 1cm margins
+- `enable_ocr_correction`: Enable manual OCR correction workflow (default: True)
+- `quality_cutoff`: Confidence threshold for flagging items (0.0-1.0, default: 0.95)
 
 ---
 
@@ -159,12 +165,17 @@ bbox_height_px = 43  # From layout.json
 dpi = 150  # Calculated from page size
 bbox_height_pt = bbox_height_px / dpi * 72  # = 20.6 points
 
-# Map to font size using buckets
-if bbox_height_pt < 11.5:  font_size = 9pt
-elif bbox_height_pt < 12.5: font_size = 10pt
-elif bbox_height_pt < 14.0: font_size = 11pt
-elif bbox_height_pt < 16.0: font_size = 12pt
-elif bbox_height_pt < 18.5: font_size = 13pt
+# Block type determines sizing strategy:
+# - TITLES: fixed at 12pt (for consistency)
+# - DISCARDED (page numbers, footnotes): fixed at 8pt
+# - TEXT: threshold-based mapping
+
+# Map text blocks to font size using buckets (default thresholds):
+if bbox_height_pt < 17.0:  font_size = 9pt
+elif bbox_height_pt < 22.0: font_size = 10pt
+elif bbox_height_pt < 28.0: font_size = 11pt
+elif bbox_height_pt < 30.0: font_size = 12pt
+elif bbox_height_pt < 32.0: font_size = 13pt
 else: font_size = 14pt
 ```
 
@@ -175,7 +186,41 @@ else: font_size = 14pt
 
 ---
 
-### 5. Utilities (`src/utils.py`)
+### 5. OCR Post-Processor (`src/ocr_postprocessor.py`)
+
+**Responsibilities:**
+- Extract low-confidence OCR results from MinerU layout.json
+- Present them to user for manual review/correction
+- Apply user corrections back to layout.json
+- Create backup before modifying
+
+**Key Functions:**
+- `extract_low_confidence_items()`: Filter text spans by confidence score threshold
+- `to_dataframe()`: Convert to Gradio-compatible DataFrame for UI
+- `from_dataframe()`: Update corrections from user-edited table
+- `apply_corrections()`: Patch layout.json with corrections (creates backup)
+
+**Key Parameters:**
+- `quality_threshold`: Confidence score cutoff (0.0-1.0, default: 0.95)
+  - Spans with score < threshold are flagged for review
+  - Lower threshold = stricter (more items to review)
+  - Higher threshold = lenient (fewer items)
+
+**Rationale:**
+MinerU provides confidence scores for each text span. Low-confidence text often contains:
+- OCR errors (misread characters)
+- Fragments (partial words)
+- Artifacts (page numbers, punctuation)
+
+Manual correction is more reliable than automated grammar checking because:
+- User understands context and intent
+- No false positives (grammar checkers can introduce errors)
+- Works for any language without configuration
+- Zero processing overhead
+
+---
+
+### 6. Utilities (`src/utils.py`)
 
 **Responsibilities:**
 - File validation (extension, size)
@@ -226,6 +271,28 @@ else: font_size = 14pt
    │   ├── images/*.jpg (extracted images)
    │   └── *_origin.pdf (original file)
    └── Parse layout.json for page dimensions
+
+5A. EXTRACT LOW-CONFIDENCE ITEMS (if OCR correction enabled)
+    ├── Load layout.json from temp directory
+    ├── Scan all text spans for confidence scores
+    ├── Filter spans where score < quality_cutoff
+    ├── Store location data (page, block, line, span indices)
+    └── Return DataFrame to UI for user review
+
+5B. USER MANUAL CORRECTION (if low-conf items found)
+    ├── Display editable table in Gradio UI
+    ├── User edits "Correction" column
+    │   ├── Fix mistakes in "Original" text
+    │   └── Leave blank to delete the span
+    ├── Click "Apply Corrections"
+    └── Continue to step 6 with corrected layout
+
+5C. APPLY CORRECTIONS
+    ├── Create backup: layout_uncorrected.json
+    ├── Navigate to each span using stored location data
+    ├── Update span["content"] with user correction
+    ├── Save modified layout.json
+    └── Proceed to PDF generation with corrected data
 
 6. BUILD PDF
    ├── Calculate DPI from page size (Letter/A4 detection)
