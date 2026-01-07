@@ -43,11 +43,11 @@ class DocumentBuilder:
         # These thresholds work with bbox heights converted to points
         # Typical line heights are ~1.2x the font size
         # 9pt font → ~11pt line height, 10pt → ~12pt, 11pt → ~13pt, 12pt → ~14pt, 14pt → ~17pt
-        self.font_bucket_9 = font_buckets.get("bucket_9", 11.5) if font_buckets else 11.5
+        self.font_bucket_9 = font_buckets.get("bucket_9", 9.0) if font_buckets else 9.0
         self.font_bucket_10 = font_buckets.get("bucket_10", 12.5) if font_buckets else 12.5
-        self.font_bucket_11 = font_buckets.get("bucket_11", 14.0) if font_buckets else 14.0
-        self.font_bucket_12 = font_buckets.get("bucket_12", 16.0) if font_buckets else 16.0
-        self.font_bucket_14 = font_buckets.get("bucket_14", 18.5) if font_buckets else 18.5
+        self.font_bucket_11 = font_buckets.get("bucket_11", 28.5) if font_buckets else 28.5
+        self.font_bucket_12 = font_buckets.get("bucket_12", 30.0) if font_buckets else 30.0
+        self.font_bucket_14 = font_buckets.get("bucket_14", 31.0) if font_buckets else 31.0
 
         # DEBUG: Print font bucket thresholds
         print("=" * 80)
