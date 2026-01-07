@@ -180,27 +180,24 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
         with gr.Column():
             gr.Markdown("""
             **Features:**
-            - Multi-language OCR support (109 languages including Russian)
-            - Preserves document structure: headings, paragraphs, lists
-            - Extracts images, tables, and formulas
+            - Multi-language OCR support
+            - Preserves document structure
             - Outputs searchable PDF
             """)
         with gr.Column():
             gr.Markdown("""
-            **Limitations:**
+            **Tips:**
             - Maximum file size: 200 MB
-            - Requires internet connection (MinerU cloud API)
+            - Ensure pages are properly oriented
             """)
         with gr.Column():
             gr.Markdown("""
-            **Tips for best results:**
-            - Use high-quality scans
-            - Ensure pages are properly oriented
-            - Files must be under 200 MB
+            Powered by [MinerU](https://mineru.net/) - An open-source document parsing solution.
             """)
 
     with gr.Row():
         with gr.Column():
+            gr.Markdown("### Document Language")
             language = gr.Dropdown(
                 choices=[
                     ("Russian", "ru"),
@@ -213,22 +210,21 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                     ("Spanish", "spanish"),
                 ],
                 value="ru",
-                label="Document Language",
                 info="Select the primary language for better OCR accuracy"
             )
 
+            gr.Markdown("### Output Format")
             output_format = gr.Radio(
                 choices=[
                     ("JSON → PDF (Structured, preserves tables/images)", "json"),
                     ("Markdown → PDF (Simple text-focused)", "markdown")
                 ],
                 value="json",
-                label="Output Format",
                 info="JSON preserves more structure, Markdown is simpler"
             )
 
             gr.Markdown("---")
-            gr.Markdown("### 🎨 Font Size Buckets (bbox height thresholds)")
+            gr.Markdown("### Font Size Buckets (bbox height thresholds)")
 
             font_bucket_9 = gr.Slider(
                 minimum=15,
@@ -328,14 +324,6 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14],
         outputs=[output_file, mineru_output]
     )
-
-    gr.Markdown("""
-    ---
-
-    **Powered by [MinerU](https://mineru.net/)** - An open-source document parsing solution.
-
-    Processing time depends on document length and complexity, typically 10-60 seconds.
-    """)
 
 
 if __name__ == "__main__":
