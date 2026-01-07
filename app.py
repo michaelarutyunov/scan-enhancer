@@ -176,6 +176,7 @@ def process_pdf(
                     print(f"DEBUG: Created DataFrame with shape: {df.shape}")
                     print(f"DEBUG: DataFrame columns: {df.columns.tolist()}")
                     print(f"DEBUG: DataFrame head:\n{df.head()}")
+                    print(f"DEBUG: DataFrame as dict:\n{df.to_dict('records')[:3]}")
 
                     # Store state for later use when Apply Corrections is clicked
                     state_data = {
@@ -195,12 +196,19 @@ def process_pdf(
                     status_msg = f"✅ MinerU completed. Found {len(low_conf_items)} low-confidence items. Please review and correct below."
 
                     # Return early - don't generate PDF yet
+                    # Convert DataFrame to dict format for Gradio compatibility
+                    df_dict = {
+                        "data": df.values.tolist(),
+                        "headers": df.columns.tolist()
+                    }
+                    print(f"DEBUG: Returning data with {len(df)} rows")
+
                     # Return: (output_file, binarized, mineru_zip, corrections_table, correction_panel_visible, state, status, correction_status_visible)
                     return (
                         None,  # No final PDF yet
                         binarized_pdf_path,
                         zip_path if download_raw else None,
-                        df,  # Corrections table data - return DataFrame directly
+                        df,  # Try DataFrame directly again
                         gr.update(visible=True),  # Show correction panel
                         state_data,  # Store for apply_corrections
                         status_msg,
@@ -550,10 +558,10 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 gr.Markdown("Review and correct OCR errors below. Edit the 'Correction' column.")
 
                 corrections_table = gr.DataFrame(
-                    value=pd.DataFrame(columns=["Page", "Score", "Type", "Original", "Correction"]),
                     interactive=True,
                     wrap=True,
-                    label=""
+                    label="Corrections Table",
+                    headers=["Page", "Score", "Type", "Original", "Correction"]
                 )
 
                 apply_corrections_btn = gr.Button(
@@ -631,4 +639,4 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
 
 
 if __name__ == "__main__":
-    app.launch()
+    app.launch(ssr_mode=False)  # Disable SSR to fix DataFrame rendering issues
