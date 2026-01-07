@@ -41,6 +41,7 @@ def process_pdf(
     binarize_enabled: bool,
     binarize_block_size: int,
     binarize_c_constant: int,
+    enable_formula: bool,
     font_bucket_9: float,
     font_bucket_10: float,
     font_bucket_11: float,
@@ -60,6 +61,7 @@ def process_pdf(
         binarize_enabled: If True, preprocess PDF with binarization before sending to MinerU
         binarize_block_size: Block size for adaptive thresholding (odd number, 11-51)
         binarize_c_constant: C constant subtracted from mean for adaptive thresholding (0-30)
+        enable_formula: If True, enable MinerU formula recognition; if False, treat as text
         font_bucket_9: Line height threshold in points for 9pt font (default 8.0)
         font_bucket_10: Line height threshold in points for 10pt font (default 18.0)
         font_bucket_11: Line height threshold in points for 11pt font (default 21.0)
@@ -139,7 +141,7 @@ def process_pdf(
 
         # Submit to MinerU API
         progress(0.2, desc="Submitting to MinerU API...")
-        result = mineru.process_pdf(pdf_path, output_format=output_format, language=language)
+        result = mineru.process_pdf(pdf_path, output_format=output_format, language=language, enable_formula=enable_formula)
 
         task_id = result.get("task_id")
         status = result.get("status")
@@ -329,6 +331,12 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="Subtracted from local mean. Lower=more white (fewer dots), Higher=more black. (default: 20)"
             )
 
+            enable_formula = gr.Checkbox(
+                label="Enable formula detection",
+                value=True,
+                info="Disable if text is being misclassified as equations (e.g., single letters or special characters)"
+            )
+
             gr.Markdown("---")
             gr.Markdown("### Font Size Buckets (line height thresholds in points)")
 
@@ -425,7 +433,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
     process_btn.click(
         fn=process_pdf,
         inputs=[pdf_input, output_format, language, download_raw, keep_original_margins, binarize_enabled,
-                binarize_block_size, binarize_c_constant,
+                binarize_block_size, binarize_c_constant, enable_formula,
                 font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14],
         outputs=[output_file, binarized_file, mineru_output]
     )

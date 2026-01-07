@@ -42,7 +42,8 @@ class MinerUAPIProcessor:
         self,
         pdf_path: str,
         output_format: OutputFormat = "json",
-        language: str = "ru"
+        language: str = "ru",
+        enable_formula: bool = True
     ) -> str:
         """
         Submit a PDF parsing task to MinerU API using the file-urls/batch workflow.
@@ -51,6 +52,8 @@ class MinerUAPIProcessor:
             pdf_path: Path to the PDF file to parse
             output_format: "json" or "markdown"
             language: Document language code (e.g., "ru" for Russian, "ch" for Chinese)
+            enable_formula: Whether to enable formula recognition (default: True).
+                           Set to False to prevent text from being misclassified as equations.
 
         Returns:
             task_id: The task ID for polling
@@ -75,6 +78,7 @@ class MinerUAPIProcessor:
         batch_data = {
             "model_version": "pipeline",  # Use pipeline for better multi-language support (Russian, etc.)
             "language": language,
+            "enable_formula": enable_formula,  # Enable/disable formula recognition
             "files": [{
                 "name": pdf_file.name,
                 "data_id": pdf_file.stem  # Use filename without extension as data_id
@@ -212,7 +216,8 @@ class MinerUAPIProcessor:
         self,
         pdf_path: str,
         output_format: OutputFormat = "json",
-        language: str = "ru"
+        language: str = "ru",
+        enable_formula: bool = True
     ) -> Dict:
         """
         Complete workflow: submit, poll, and get result.
@@ -223,11 +228,13 @@ class MinerUAPIProcessor:
             pdf_path: Path to the PDF file
             output_format: "json" or "markdown"
             language: Document language code (default "ru" for Russian)
+            enable_formula: Whether to enable formula recognition (default: True).
+                           Set to False to prevent text from being misclassified as equations.
 
         Returns:
             Dict with task_id, status ("completed"/"failed"), and parsed content or error message
         """
-        task_id = self.submit_task(pdf_path, output_format, language)
+        task_id = self.submit_task(pdf_path, output_format, language, enable_formula)
         result = self.poll_task(task_id)
 
         # Extract data from batch response format
