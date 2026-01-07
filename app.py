@@ -39,6 +39,8 @@ def process_pdf(
     download_raw: bool,
     keep_original_margins: bool,
     binarize_enabled: bool,
+    binarize_block_size: int,
+    binarize_c_constant: int,
     font_bucket_9: float,
     font_bucket_10: float,
     font_bucket_11: float,
@@ -56,6 +58,8 @@ def process_pdf(
         download_raw: If True, also return raw MinerU output ZIP
         keep_original_margins: If True, use exact positioning; if False, use consistent 1cm margins
         binarize_enabled: If True, preprocess PDF with binarization before sending to MinerU
+        binarize_block_size: Block size for adaptive thresholding (odd number, 11-51)
+        binarize_c_constant: C constant subtracted from mean for adaptive thresholding (0-30)
         font_bucket_9: Bbox height threshold for 9pt font (default 23)
         font_bucket_10: Bbox height threshold for 10pt font (default 28)
         font_bucket_11: Bbox height threshold for 11pt font (default 33)
@@ -64,7 +68,7 @@ def process_pdf(
         progress: Gradio progress tracker
 
     Returns:
-        Tuple of (output PDF path, MinerU ZIP path or None)
+        Tuple of (output PDF path, binarized PDF path or None, MinerU ZIP path or None)
     """
     if pdf_file is None:
         raise gr.Error("Please upload a PDF file")
@@ -75,8 +79,11 @@ def process_pdf(
             "Please set MINERU_API_KEY environment variable."
         )
 
+    from datetime import datetime
+
     pdf_path = pdf_file.name
     temp_pdf_to_cleanup = None
+    binarized_pdf_path = None
 
     try:
         # Validate file
@@ -101,7 +108,12 @@ def process_pdf(
 
             progress(0.05, desc="Preprocessing PDF (binarization)...")
             import tempfile
-            temp_pdf_to_cleanup = tempfile.mktemp(suffix="_binarized.pdf")
+
+            # Create output filename with timestamp
+            base_name = clean_filename(os.path.basename(pdf_path))
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            binarized_filename = f"{base_name}_binarized_{timestamp}.pdf"
+            temp_pdf_to_cleanup = os.path.join(tempfile.gettempdir(), binarized_filename)
 
             def progress_cb(page, total, msg):
                 if total > 0:
@@ -112,8 +124,14 @@ def process_pdf(
             pdf_path = preprocess_pdf(
                 input_path=pdf_path,
                 output_path=temp_pdf_to_cleanup,
+                block_size=binarize_block_size,
+                c_constant=binarize_c_constant,
                 progress_callback=progress_cb
             )
+            # Also save to current directory for download
+            binarized_pdf_path = binarized_filename
+            import shutil
+            shutil.copy2(temp_pdf_to_cleanup, binarized_pdf_path)
         else:
             pdf_path = pdf_file.name
 
@@ -135,9 +153,10 @@ def process_pdf(
             zip_path = result.get("zip_path")
             layout_data = result.get("layout_data")  # For exact positioning
 
-            # Create output filename
+            # Create output filename with timestamp
             base_name = clean_filename(os.path.basename(pdf_path))
-            output_path = f"{base_name}_cleaned.pdf"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = f"{base_name}_OCR_{timestamp}.pdf"
 
             # DEBUG: Trace code path
             print("=" * 80)
@@ -193,11 +212,11 @@ def process_pdf(
                 except:
                     pass
 
-            # Return both PDF and optionally the ZIP file
+            # Return (output PDF, binarized PDF path or None, ZIP path or None)
             if download_raw and zip_path and os.path.exists(zip_path):
-                return output_path, zip_path
+                return output_path, binarized_pdf_path, zip_path
             else:
-                return output_path, None
+                return output_path, binarized_pdf_path, None
         else:
             # Extract error message if available
             error_msg = result_data.get("error", status)
@@ -293,6 +312,24 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="Improves text clarity for noisy scans. Adds ~10-20 seconds."
             )
 
+            binarize_block_size = gr.Slider(
+                minimum=11,
+                maximum=51,
+                value=31,
+                step=2,
+                label="Binarization block size",
+                info="Size of local neighborhood for thresholding (odd number, higher=smoother, default: 31)"
+            )
+
+            binarize_c_constant = gr.Slider(
+                minimum=0,
+                maximum=30,
+                value=10,
+                step=1,
+                label="Binarization C constant",
+                info="Subtracted from mean (higher=more black, lower=more white, default: 10)"
+            )
+
             gr.Markdown("---")
             gr.Markdown("### Font Size Buckets (bbox height thresholds)")
 
@@ -354,8 +391,14 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 size="lg"
             )
 
+            binarized_file = gr.File(
+                label="📄 Download Binarized PDF (Pre-processed)",
+                type="filepath",
+                visible=False
+            )
+
             output_file = gr.File(
-                label="📥 Download Cleaned Document",
+                label="📥 Download OCR Processed Document",
                 type="filepath"
             )
 
@@ -372,12 +415,20 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
         outputs=[mineru_output]
     )
 
+    # Toggle binarized output visibility when checkbox changes
+    binarize_enabled.change(
+        fn=lambda x: gr.update(visible=x),
+        inputs=[binarize_enabled],
+        outputs=[binarized_file]
+    )
+
     # Connect processing function
     process_btn.click(
         fn=process_pdf,
         inputs=[pdf_input, output_format, language, download_raw, keep_original_margins, binarize_enabled,
+                binarize_block_size, binarize_c_constant,
                 font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14],
-        outputs=[output_file, mineru_output]
+        outputs=[output_file, binarized_file, mineru_output]
     )
 
 
