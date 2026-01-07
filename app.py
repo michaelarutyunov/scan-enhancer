@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.getcwd())
 
 import gradio as gr
+import pandas as pd
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -199,7 +200,7 @@ def process_pdf(
                         None,  # No final PDF yet
                         binarized_pdf_path,
                         zip_path if download_raw else None,
-                        df,  # Corrections table data
+                        df,  # Corrections table data - return DataFrame directly
                         gr.update(visible=True),  # Show correction panel
                         state_data,  # Store for apply_corrections
                         status_msg,
@@ -428,7 +429,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
 
             binarize_c_constant = gr.Slider(
                 minimum=0,
-                maximum=30,
+                maximum=51,
                 value=25,
                 step=1,
                 label="Binarization C constant",
@@ -454,7 +455,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 minimum=0.0,
                 maximum=1.0,
                 value=0.95,
-                step=0.05,
+                step=0.01,
                 label="Quality Cut-off",
                 info="Confidence threshold (lower = more items to review). Recommended: 0.85-0.95",
                 interactive=True
@@ -464,8 +465,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             gr.Markdown("### Font Size Buckets (line height thresholds in points)")
 
             font_bucket_9 = gr.Slider(
-                minimum=8,
-                maximum=36,
+                minimum=5,
+                maximum=50,
                 value=17.0,
                 step=0.5,
                 label="8pt → 9pt threshold",
@@ -473,8 +474,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             font_bucket_10 = gr.Slider(
-                minimum=8,
-                maximum=36,
+                minimum=5,
+                maximum=50,
                 value=22.0,
                 step=0.5,
                 label="9pt → 10pt threshold",
@@ -482,8 +483,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             font_bucket_11 = gr.Slider(
-                minimum=8,
-                maximum=36,
+                minimum=5,
+                maximum=50,
                 value=28.0,
                 step=0.5,
                 label="10pt → 11pt threshold",
@@ -491,8 +492,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             font_bucket_12 = gr.Slider(
-                minimum=8,
-                maximum=36,
+                minimum=5,
+                maximum=50,
                 value=30.0,
                 step=0.5,
                 label="11pt → 12pt threshold",
@@ -500,8 +501,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             font_bucket_14 = gr.Slider(
-                minimum=8,
-                maximum=36,
+                minimum=5,
+                maximum=50,
                 value=32.0,
                 step=0.5,
                 label="12pt → 14pt threshold",
@@ -549,6 +550,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 gr.Markdown("Review and correct OCR errors below. Edit the 'Correction' column.")
 
                 corrections_table = gr.DataFrame(
+                    value=pd.DataFrame(columns=["Page", "Score", "Type", "Original", "Correction"]),
                     interactive=True,
                     wrap=True,
                     label=""
