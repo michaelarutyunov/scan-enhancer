@@ -46,6 +46,17 @@ class DocumentBuilder:
         self.font_bucket_12 = font_buckets.get("bucket_12", 41) if font_buckets else 41
         self.font_bucket_14 = font_buckets.get("bucket_14", 50) if font_buckets else 50
 
+        # DEBUG: Print font bucket thresholds
+        print("=" * 80)
+        print("DEBUG: Font bucket thresholds being used:")
+        print(f"  bucket_9 (< {self.font_bucket_9}) → 9pt")
+        print(f"  bucket_10 (< {self.font_bucket_10}) → 10pt")
+        print(f"  bucket_11 (< {self.font_bucket_11}) → 11pt")
+        print(f"  bucket_12 (< {self.font_bucket_12}) → 12pt")
+        print(f"  bucket_14 (< {self.font_bucket_14}) → 13pt")
+        print(f"  ≥ {self.font_bucket_14} → 14pt")
+        print("=" * 80)
+
         # Setup fonts for Cyrillic support
         self._setup_fonts()
 
@@ -481,6 +492,13 @@ class DocumentBuilder:
                 median_bbox_height = sorted_heights[mid]
             # Direct mapping to font size
             font_size = self._get_font_size_from_bbox(median_bbox_height)
+
+            # DEBUG: Print first 10 blocks for verification
+            if not hasattr(self, '_debug_blocks_printed'):
+                self._debug_blocks_printed = 0
+            if self._debug_blocks_printed < 10:
+                self._debug_blocks_printed += 1
+                print(f"DEBUG Block {self._debug_blocks_printed}: median_bbox={median_bbox_height:.1f} → font_size={font_size}pt | lines={len(text_lines)} | text='{text_lines[0][:40] if text_lines else ''}...'")
         else:
             # Fallback to default sizes
             font_size = 14 if block_type == "title" else 11
