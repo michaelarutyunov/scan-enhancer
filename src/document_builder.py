@@ -39,16 +39,19 @@ class DocumentBuilder:
         self.styles = getSampleStyleSheet()
         self.temp_files = []
 
-        # Font bucket thresholds (default values)
-        self.font_bucket_9 = font_buckets.get("bucket_9", 23) if font_buckets else 23
-        self.font_bucket_10 = font_buckets.get("bucket_10", 28) if font_buckets else 28
-        self.font_bucket_11 = font_buckets.get("bucket_11", 33) if font_buckets else 33
-        self.font_bucket_12 = font_buckets.get("bucket_12", 41) if font_buckets else 41
-        self.font_bucket_14 = font_buckets.get("bucket_14", 50) if font_buckets else 50
+        # Font bucket thresholds (default values in POINTS, not pixels!)
+        # These thresholds work with bbox heights converted to points
+        # Typical line heights are ~1.2x the font size
+        # 9pt font → ~11pt line height, 10pt → ~12pt, 11pt → ~13pt, 12pt → ~14pt, 14pt → ~17pt
+        self.font_bucket_9 = font_buckets.get("bucket_9", 11.5) if font_buckets else 11.5
+        self.font_bucket_10 = font_buckets.get("bucket_10", 12.5) if font_buckets else 12.5
+        self.font_bucket_11 = font_buckets.get("bucket_11", 14.0) if font_buckets else 14.0
+        self.font_bucket_12 = font_buckets.get("bucket_12", 16.0) if font_buckets else 16.0
+        self.font_bucket_14 = font_buckets.get("bucket_14", 18.5) if font_buckets else 18.5
 
         # DEBUG: Print font bucket thresholds
         print("=" * 80)
-        print("DEBUG: Font bucket thresholds being used:")
+        print("DEBUG: Font bucket thresholds being used (in points):")
         print(f"  bucket_9 (< {self.font_bucket_9}) → 9pt")
         print(f"  bucket_10 (< {self.font_bucket_10}) → 10pt")
         print(f"  bucket_11 (< {self.font_bucket_11}) → 11pt")
@@ -297,6 +300,12 @@ class DocumentBuilder:
         # Store consistent margins setting for coordinate conversion
         self._use_consistent_margins_layout = use_consistent_margins
 
+        # Calculate DPI from page size (needed for pixel-to-point conversion)
+        # Get page size from first page
+        first_page_size = pdf_info[0].get("page_size", [612, 792])
+        self._dpi = self._calculate_dpi_from_page_size(first_page_size)
+        print(f"DEBUG: Calculated DPI from page size {first_page_size}: {self._dpi:.1f}")
+
         # Create canvas for direct drawing
         self._canvas = pdfcanvas.Canvas(self.output_path)
 
@@ -383,6 +392,46 @@ class DocumentBuilder:
         else:
             # Text, title, or discarded - pass page_height for line positioning
             self._render_text_block(block, x, y, width, height, block_type, is_discarded, page_height)
+
+    def _calculate_dpi_from_page_size(self, page_size: List[float]) -> float:
+        """
+        Calculate DPI from page size by comparing to standard paper dimensions.
+
+        MinerU stores bbox coordinates in pixels. We need to determine the DPI
+        to convert pixel heights to points for font sizing.
+
+        Args:
+            page_size: [width, height] in pixels from layout.json
+
+        Returns:
+            DPI as a float (typically 72, 96, 150, 200, or 300)
+        """
+        # Standard paper sizes in inches
+        # US Letter: 8.5 x 11 inches
+        # A4: 8.27 x 11.69 inches
+        letter_w, letter_h = 8.5, 11.0
+        a4_w, a4_h = 8.27, 11.69
+
+        px_w, px_h = page_size
+
+        # Calculate DPI based on US Letter (most common for scanned documents)
+        dpi_w_letter = px_w / letter_w
+        dpi_h_letter = px_h / letter_h
+        avg_dpi_letter = (dpi_w_letter + dpi_h_letter) / 2
+
+        # Calculate DPI based on A4
+        dpi_w_a4 = px_w / a4_w
+        dpi_h_a4 = px_h / a4_h
+        avg_dpi_a4 = (dpi_w_a4 + dpi_h_a4) / 2
+
+        # Use the DPI that gives more consistent width/height ratio
+        # (i.e., the one where width and height DPI are closer together)
+        if abs(dpi_w_letter - dpi_h_letter) < abs(dpi_w_a4 - dpi_h_a4):
+            # US Letter is a better match
+            return avg_dpi_letter
+        else:
+            # A4 is a better match
+            return avg_dpi_a4
 
     def _convert_bbox(self, bbox: List[float], page_height: float) -> Tuple[float, float, float, float]:
         """
@@ -486,19 +535,24 @@ class DocumentBuilder:
             mid = len(sorted_heights) // 2
             if len(sorted_heights) % 2 == 0:
                 # Even number of items: average the two middle values
-                median_bbox_height = (sorted_heights[mid - 1] + sorted_heights[mid]) / 2
+                median_bbox_height_px = (sorted_heights[mid - 1] + sorted_heights[mid]) / 2
             else:
                 # Odd number of items: take the middle value
-                median_bbox_height = sorted_heights[mid]
-            # Direct mapping to font size
-            font_size = self._get_font_size_from_bbox(median_bbox_height)
+                median_bbox_height_px = sorted_heights[mid]
+
+            # Convert pixels to points using DPI
+            # Formula: points = pixels / DPI * 72
+            median_bbox_height_pt = median_bbox_height_px / self._dpi * 72
+
+            # Map point height to font size
+            font_size = self._get_font_size_from_bbox(median_bbox_height_pt)
 
             # DEBUG: Print first 10 blocks for verification
             if not hasattr(self, '_debug_blocks_printed'):
                 self._debug_blocks_printed = 0
             if self._debug_blocks_printed < 10:
                 self._debug_blocks_printed += 1
-                print(f"DEBUG Block {self._debug_blocks_printed}: median_bbox={median_bbox_height:.1f} → font_size={font_size}pt | lines={len(text_lines)} | text='{text_lines[0][:40] if text_lines else ''}...'")
+                print(f"DEBUG Block {self._debug_blocks_printed}: median_bbox={median_bbox_height_px:.1f}px ({median_bbox_height_pt:.1f}pt) → font_size={font_size}pt | lines={len(text_lines)} | text='{text_lines[0][:40] if text_lines else ''}...'")
         else:
             # Fallback to default sizes
             font_size = 14 if block_type == "title" else 11

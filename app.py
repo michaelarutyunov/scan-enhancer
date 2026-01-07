@@ -60,11 +60,11 @@ def process_pdf(
         binarize_enabled: If True, preprocess PDF with binarization before sending to MinerU
         binarize_block_size: Block size for adaptive thresholding (odd number, 11-51)
         binarize_c_constant: C constant subtracted from mean for adaptive thresholding (0-30)
-        font_bucket_9: Bbox height threshold for 9pt font (default 23)
-        font_bucket_10: Bbox height threshold for 10pt font (default 28)
-        font_bucket_11: Bbox height threshold for 11pt font (default 33)
-        font_bucket_12: Bbox height threshold for 12pt font (default 41)
-        font_bucket_14: Bbox height threshold for 14pt font (default 50)
+        font_bucket_9: Line height threshold in points for 9pt font (default 11.5)
+        font_bucket_10: Line height threshold in points for 10pt font (default 12.5)
+        font_bucket_11: Line height threshold in points for 11pt font (default 14.0)
+        font_bucket_12: Line height threshold in points for 12pt font (default 16.0)
+        font_bucket_14: Line height threshold in points for 14pt font (default 18.5)
         progress: Gradio progress tracker
 
     Returns:
@@ -331,51 +331,51 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             gr.Markdown("---")
-            gr.Markdown("### Font Size Buckets (bbox height thresholds)")
+            gr.Markdown("### Font Size Buckets (line height thresholds in points)")
 
             font_bucket_9 = gr.Slider(
-                minimum=15,
-                maximum=75,
-                value=23,
+                minimum=8,
+                maximum=36,
+                value=11.5,
                 step=0.5,
                 label="8pt → 9pt threshold",
-                info="Bbox height below this → 8pt, above → 9pt (default: 23)"
+                info="Line height below this → 8pt, above → 9pt (default: 11.5pt)"
             )
 
             font_bucket_10 = gr.Slider(
-                minimum=15,
-                maximum=75,
-                value=28,
+                minimum=8,
+                maximum=36,
+                value=12.5,
                 step=0.5,
                 label="9pt → 10pt threshold",
-                info="Bbox height below this → 9pt, above → 10pt (default: 28)"
+                info="Line height below this → 9pt, above → 10pt (default: 12.5pt)"
             )
 
             font_bucket_11 = gr.Slider(
-                minimum=15,
-                maximum=75,
-                value=33,
+                minimum=8,
+                maximum=36,
+                value=14.0,
                 step=0.5,
                 label="10pt → 11pt threshold",
-                info="Bbox height below this → 10pt, above → 11pt (default: 33)"
+                info="Line height below this → 10pt, above → 11pt (default: 14.0pt)"
             )
 
             font_bucket_12 = gr.Slider(
-                minimum=15,
-                maximum=75,
-                value=41,
+                minimum=8,
+                maximum=36,
+                value=16.0,
                 step=0.5,
                 label="11pt → 12pt threshold",
-                info="Bbox height below this → 11pt, above → 12pt (default: 41)"
+                info="Line height below this → 11pt, above → 12pt (default: 16.0pt)"
             )
 
             font_bucket_14 = gr.Slider(
-                minimum=15,
-                maximum=75,
-                value=50,
+                minimum=8,
+                maximum=36,
+                value=18.5,
                 step=0.5,
                 label="12pt → 14pt threshold",
-                info="Bbox height below this → 12pt, above → 14pt (default: 50)"
+                info="Line height below this → 12pt, above → 14pt (default: 18.5pt)"
             )
 
         with gr.Column():
