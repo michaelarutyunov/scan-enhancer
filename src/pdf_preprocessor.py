@@ -104,9 +104,8 @@ def preprocess_pdf(
         if morph_cleanup:
             binary = _morphological_cleanup(binary)
 
-        # Convert back to PIL Image for img2pdf
+        # Convert back to PIL Image
         from PIL import Image
-        # img2pdf requires RGB mode, convert from binary
         binary_pil = Image.fromarray(binary).convert("RGB")
         binarized_images.append(binary_pil)
 
@@ -115,8 +114,21 @@ def preprocess_pdf(
         progress_callback(total_pages, total_pages, "Building binarized PDF...")
 
     try:
+        # img2pdf works better with file paths - save images to temp dir
+        import io
+        image_buffers = []
+        for img in binarized_images:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            buf.seek(0)
+            image_buffers.append(buf)
+
         with open(output_path, "wb") as f:
-            f.write(img2pdf.convert(binarized_images))
+            f.write(img2pdf.convert(image_buffers))
+
+        # Clean up buffers
+        for buf in image_buffers:
+            buf.close()
     except Exception as e:
         raise RuntimeError(f"Failed to create binarized PDF: {e}")
 
