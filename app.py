@@ -174,41 +174,33 @@ def process_pdf(
 
 # Create Gradio interface
 with gr.Blocks(title="PDF Document Cleaner") as app:
-    gr.Markdown("""
-    # 📚 PDF Document Cleaner
-
-    Upload a scanned PDF document and get a clean, readable document
-    with text extracted via **MinerU API** and preserved structure.
-
-    **Features:**
-    - Multi-language OCR support (109 languages including Russian)
-    - Preserves document structure: headings, paragraphs, lists
-    - Extracts images, tables, and formulas
-    - Outputs searchable PDF
-
-    **Limitations:**
-    - Maximum file size: 200 MB
-    - Requires internet connection (MinerU cloud API)
-    """)
+    gr.Markdown("# 📚 PDF Document Cleaner")
 
     with gr.Row():
         with gr.Column():
-            pdf_input = gr.File(
-                label="Upload PDF Document",
-                file_types=[".pdf"],
-                type="filepath"
-            )
+            gr.Markdown("""
+            **Features:**
+            - Multi-language OCR support (109 languages including Russian)
+            - Preserves document structure: headings, paragraphs, lists
+            - Extracts images, tables, and formulas
+            - Outputs searchable PDF
+            """)
+        with gr.Column():
+            gr.Markdown("""
+            **Limitations:**
+            - Maximum file size: 200 MB
+            - Requires internet connection (MinerU cloud API)
+            """)
+        with gr.Column():
+            gr.Markdown("""
+            **Tips for best results:**
+            - Use high-quality scans
+            - Ensure pages are properly oriented
+            - Files must be under 200 MB
+            """)
 
-            output_format = gr.Radio(
-                choices=[
-                    ("JSON → PDF (Structured, preserves tables/images)", "json"),
-                    ("Markdown → PDF (Simple text-focused)", "markdown")
-                ],
-                value="json",
-                label="Output Format",
-                info="JSON preserves more structure, Markdown is simpler"
-            )
-
+    with gr.Row():
+        with gr.Column():
             language = gr.Dropdown(
                 choices=[
                     ("Russian", "ru"),
@@ -225,23 +217,14 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="Select the primary language for better OCR accuracy"
             )
 
-            gr.Markdown("""
-            **Tips for best results:**
-            - Use high-quality scans
-            - Ensure pages are properly oriented
-            - Files must be under 200 MB
-            """)
-
-            download_raw = gr.Checkbox(
-                label="Download raw MinerU output (for diagnostics)",
-                value=False,
-                info="Enable to also download the raw MinerU ZIP file for debugging"
-            )
-
-            keep_original_margins = gr.Checkbox(
-                label="Keep original page margins",
-                value=True,
-                info="When unchecked, uses consistent 1cm margins on all sides"
+            output_format = gr.Radio(
+                choices=[
+                    ("JSON → PDF (Structured, preserves tables/images)", "json"),
+                    ("Markdown → PDF (Simple text-focused)", "markdown")
+                ],
+                value="json",
+                label="Output Format",
+                info="JSON preserves more structure, Markdown is simpler"
             )
 
             gr.Markdown("---")
@@ -292,13 +275,34 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="Bbox height below this → 12pt, above → 14pt (default: 50)"
             )
 
+            gr.Markdown("---")
+            gr.Markdown("### ⚙️ Additional Settings")
+
+            download_raw = gr.Checkbox(
+                label="Download raw MinerU output (for diagnostics)",
+                value=False,
+                info="Enable to also download the raw MinerU ZIP file for debugging"
+            )
+
+            keep_original_margins = gr.Checkbox(
+                label="Keep original page margins",
+                value=True,
+                info="When unchecked, uses consistent 1cm margins on all sides"
+            )
+
+        with gr.Column():
+            pdf_input = gr.File(
+                label="Upload PDF Document",
+                file_types=[".pdf"],
+                type="filepath"
+            )
+
             process_btn = gr.Button(
                 "🚀 Process Document",
                 variant="primary",
                 size="lg"
             )
 
-        with gr.Column():
             output_file = gr.File(
                 label="📥 Download Cleaned Document",
                 type="filepath"
@@ -309,14 +313,6 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 type="filepath",
                 visible=False
             )
-
-            gr.Markdown("""
-            **What happens during processing:**
-            1. PDF is uploaded to MinerU cloud API
-            2. Document is parsed with AI-powered OCR
-            3. Text, images, tables are extracted
-            4. Clean PDF is generated with preserved structure
-            """)
 
     # Toggle MinerU output visibility when checkbox changes
     download_raw.change(
