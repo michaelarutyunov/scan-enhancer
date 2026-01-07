@@ -171,6 +171,11 @@ def process_pdf(
                     # Found low-confidence items - pause for user correction
                     df = processor.to_dataframe()
 
+                    # Debug logging
+                    print(f"DEBUG: Created DataFrame with shape: {df.shape}")
+                    print(f"DEBUG: DataFrame columns: {df.columns.tolist()}")
+                    print(f"DEBUG: DataFrame head:\n{df.head()}")
+
                     # Store state for later use when Apply Corrections is clicked
                     state_data = {
                         "processor": processor,
@@ -544,10 +549,6 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 gr.Markdown("Review and correct OCR errors below. Edit the 'Correction' column.")
 
                 corrections_table = gr.DataFrame(
-                    headers=["Page", "Score", "Type", "Original", "Correction"],
-                    datatype=["number", "number", "str", "str", "str"],
-                    col_count=(5, "fixed"),
-                    row_count=(10, "dynamic"),
                     interactive=True,
                     wrap=True,
                     label=""
