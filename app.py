@@ -318,7 +318,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 value=31,
                 step=2,
                 label="Binarization block size",
-                info="Size of local neighborhood for thresholding (odd number, higher=smoother, default: 31)"
+                info="Neighborhood size for local thresholding. Higher=smoother, lower=more local detail. (odd, default: 31)"
             )
 
             binarize_c_constant = gr.Slider(
@@ -327,7 +327,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 value=10,
                 step=1,
                 label="Binarization C constant",
-                info="Subtracted from mean (higher=more black, lower=more white, default: 10)"
+                info="Subtracted from local mean. Lower=more white (fewer dots), Higher=more black. (default: 10)"
             )
 
             gr.Markdown("---")
@@ -335,7 +335,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
 
             font_bucket_9 = gr.Slider(
                 minimum=15,
-                maximum=50,
+                maximum=75,
                 value=23,
                 step=0.5,
                 label="8pt → 9pt threshold",
@@ -344,7 +344,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
 
             font_bucket_10 = gr.Slider(
                 minimum=15,
-                maximum=50,
+                maximum=75,
                 value=28,
                 step=0.5,
                 label="9pt → 10pt threshold",
@@ -353,7 +353,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
 
             font_bucket_11 = gr.Slider(
                 minimum=15,
-                maximum=50,
+                maximum=75,
                 value=33,
                 step=0.5,
                 label="10pt → 11pt threshold",
@@ -362,7 +362,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
 
             font_bucket_12 = gr.Slider(
                 minimum=15,
-                maximum=50,
+                maximum=75,
                 value=41,
                 step=0.5,
                 label="11pt → 12pt threshold",
@@ -371,7 +371,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
 
             font_bucket_14 = gr.Slider(
                 minimum=15,
-                maximum=50,
+                maximum=75,
                 value=50,
                 step=0.5,
                 label="12pt → 14pt threshold",
