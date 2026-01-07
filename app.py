@@ -41,6 +41,7 @@ def process_pdf(
     font_bucket_10: float,
     font_bucket_11: float,
     font_bucket_12: float,
+    font_bucket_14: float,
     progress=gr.Progress()
 ) -> tuple:
     """
@@ -51,11 +52,12 @@ def process_pdf(
         output_format: "json" or "markdown" - MinerU output format
         language: Language code for OCR (e.g., "ru" for Russian)
         download_raw: If True, also return raw MinerU output ZIP
-        keep_original_margins: If True, use exact positioning; if False, use consistent 1.5cm margins
+        keep_original_margins: If True, use exact positioning; if False, use consistent 1cm margins
         font_bucket_9: Bbox height threshold for 9pt font (default 23)
         font_bucket_10: Bbox height threshold for 10pt font (default 28)
         font_bucket_11: Bbox height threshold for 11pt font (default 33)
         font_bucket_12: Bbox height threshold for 12pt font (default 41)
+        font_bucket_14: Bbox height threshold for 14pt font (default 50)
         progress: Gradio progress tracker
 
     Returns:
@@ -138,6 +140,7 @@ def process_pdf(
                         "bucket_10": font_bucket_10,
                         "bucket_11": font_bucket_11,
                         "bucket_12": font_bucket_12,
+                        "bucket_14": font_bucket_14,
                     }
                 )
             else:
@@ -280,6 +283,15 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="Bbox height below this → 11pt, above → 12pt (default: 41)"
             )
 
+            font_bucket_14 = gr.Slider(
+                minimum=15,
+                maximum=50,
+                value=50,
+                step=0.5,
+                label="12pt → 14pt threshold",
+                info="Bbox height below this → 12pt, above → 14pt (default: 50)"
+            )
+
             process_btn = gr.Button(
                 "🚀 Process Document",
                 variant="primary",
@@ -317,7 +329,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
     process_btn.click(
         fn=process_pdf,
         inputs=[pdf_input, output_format, language, download_raw, keep_original_margins,
-                font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12],
+                font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14],
         outputs=[output_file, mineru_output]
     )
 

@@ -28,9 +28,9 @@ class DocumentBuilder:
         Args:
             output_path: Where to save the final PDF
             temp_dir: Optional temporary directory containing extracted images
-            use_consistent_margins: If True, use 1.5cm margins; otherwise use 2cm default
+            use_consistent_margins: If True, use 1cm margins; otherwise use 2cm default
             font_buckets: Optional dict with custom bbox height thresholds for font sizing
-                         Keys: "bucket_9", "bucket_10", "bucket_11", "bucket_12"
+                         Keys: "bucket_9", "bucket_10", "bucket_11", "bucket_12", "bucket_14"
         """
         self.output_path = output_path
         self.temp_dir = temp_dir
@@ -44,6 +44,7 @@ class DocumentBuilder:
         self.font_bucket_10 = font_buckets.get("bucket_10", 28) if font_buckets else 28
         self.font_bucket_11 = font_buckets.get("bucket_11", 33) if font_buckets else 33
         self.font_bucket_12 = font_buckets.get("bucket_12", 41) if font_buckets else 41
+        self.font_bucket_14 = font_buckets.get("bucket_14", 50) if font_buckets else 50
 
         # Setup fonts for Cyrillic support
         self._setup_fonts()
@@ -405,7 +406,8 @@ class DocumentBuilder:
         - bucket_9 - bucket_10  → 10pt (main body text, questions, proverbs)
         - bucket_10 - bucket_11 → 11pt (section headers like "Литовские", "Немецкие")
         - bucket_11 - bucket_12 → 12pt (main title or large headers)
-        - > bucket_12       → 13pt (very large headers)
+        - bucket_12 - bucket_14 → 13pt (very large headers)
+        - > bucket_14       → 14pt (extra large headers)
 
         Args:
             bbox_height: Raw bbox height from layout.json (y2 - y1)
@@ -423,8 +425,10 @@ class DocumentBuilder:
             return 11
         elif bbox_height < self.font_bucket_12:
             return 12
-        else:
+        elif bbox_height < self.font_bucket_14:
             return 13
+        else:
+            return 14
 
     def _render_text_block(self, block: Dict, x: float, y: float, width: float, height: float,
                            block_type: str, is_discarded: bool, page_height: float):
