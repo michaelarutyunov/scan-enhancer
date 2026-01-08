@@ -49,6 +49,7 @@ def process_pdf(
     font_bucket_14: float,
     enable_ocr_correction: bool,
     quality_cutoff: float,
+    enable_line_calibration: bool,
     target_line_height: float,
     overlap_threshold: float,
     progress=gr.Progress()
@@ -70,6 +71,7 @@ def process_pdf(
         font_bucket_11: Line height threshold in points for 11pt font (default 21.0)
         font_bucket_12: Line height threshold in points for 12pt font (default 25.0)
         font_bucket_14: Line height threshold in points for 14pt font (default 27.0)
+        enable_line_calibration: If True, apply line calibration to fix overlapping text (default False)
         target_line_height: Maximum line height in pixels before overlap fixing is triggered (default 34.0)
         overlap_threshold: Optional maximum negative gap to ignore for overlap fixing (default -10.0)
         progress: Gradio progress tracker
@@ -191,6 +193,7 @@ def process_pdf(
                         "pdf_path": pdf_path,
                         "original_base_name": original_base_name,  # Store original filename for final output
                         "keep_original_margins": keep_original_margins,
+                        "enable_line_calibration": enable_line_calibration,
                         "target_line_height": target_line_height,
                         "overlap_threshold": overlap_threshold,
                         "font_buckets": {
@@ -245,8 +248,9 @@ def process_pdf(
             # Build PDF from MinerU output
             # Choose rendering method based on margin preference
             if layout_data:
-                # Fix any overlapping text blocks before rendering
-                layout_data = fix_overlapping_blocks(layout_data, target_line_height=target_line_height, overlap_threshold=overlap_threshold)
+                # Fix any overlapping text blocks before rendering (if enabled)
+                if enable_line_calibration:
+                    layout_data = fix_overlapping_blocks(layout_data, target_line_height=target_line_height, overlap_threshold=overlap_threshold)
 
                 # Use layout.json for exact positioning
                 # Apply consistent margins if user requested them
@@ -332,7 +336,8 @@ def apply_corrections_and_generate_pdf(
     Args:
         corrections_df: Edited DataFrame from corrections_table
         state_data: Dict with keys: processor, temp_dir, pdf_path,
-                    keep_original_margins, target_line_height, overlap_threshold, font_buckets
+                    keep_original_margins, enable_line_calibration, target_line_height,
+                    overlap_threshold, font_buckets
 
     Returns:
         Tuple of (final_pdf_path, status_message)
@@ -345,6 +350,7 @@ def apply_corrections_and_generate_pdf(
         temp_dir = state_data.get("temp_dir")
         pdf_path = state_data.get("pdf_path")
         keep_original_margins = state_data.get("keep_original_margins", True)
+        enable_line_calibration = state_data.get("enable_line_calibration", False)
         target_line_height = state_data.get("target_line_height", 34.0)
         overlap_threshold = state_data.get("overlap_threshold", -10.0)
         font_buckets = state_data.get("font_buckets", {})
@@ -368,8 +374,9 @@ def apply_corrections_and_generate_pdf(
         # Load corrected layout
         layout_data = processor.load_layout()
 
-        # Fix any overlapping text blocks before rendering
-        layout_data = fix_overlapping_blocks(layout_data, target_line_height=target_line_height, overlap_threshold=overlap_threshold)
+        # Fix any overlapping text blocks before rendering (if enabled)
+        if enable_line_calibration:
+            layout_data = fix_overlapping_blocks(layout_data, target_line_height=target_line_height, overlap_threshold=overlap_threshold)
 
         # Generate PDF from corrected layout with proper filename using original base name
         from datetime import datetime
@@ -487,13 +494,20 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 interactive=True
             )
 
+            enable_line_calibration = gr.Checkbox(
+                label="Line Calibration",
+                value=False,
+                info="Fix overlapping text by adjusting line heights. Disable to preserve original fonts."
+            )
+
             target_line_height = gr.Slider(
                 minimum=0.0,
                 maximum=50.0,
                 value=34.0,
                 step=0.5,
                 label="Target Line Height",
-                info="Maximum line height (px) before overlap fixing is triggered. Blocks taller than this will be reduced. Default: 34.0"
+                info="Maximum line height (px) before overlap fixing is triggered. Blocks taller than this will be reduced. Default: 34.0",
+                interactive=False
             )
 
             overlap_threshold = gr.Slider(
@@ -502,7 +516,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 value=-10.0,
                 step=0.5,
                 label="Overlap Threshold",
-                info="Fix text blocks with overlap worse than this (pixels). Lower = more aggressive, Higher = more conservative. Default: -10.0"
+                info="Fix text blocks with overlap worse than this (pixels). Lower = more aggressive, Higher = more conservative. Default: -10.0",
+                interactive=False
             )
 
             gr.Markdown("---")
@@ -646,13 +661,23 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
         outputs=[quality_cutoff]
     )
 
+    # Grey out line calibration sliders when line calibration is disabled
+    enable_line_calibration.change(
+        fn=lambda enabled: (
+            gr.update(interactive=enabled),
+            gr.update(interactive=enabled)
+        ),
+        inputs=[enable_line_calibration],
+        outputs=[target_line_height, overlap_threshold]
+    )
+
     # Connect processing function
     process_btn.click(
         fn=process_pdf,
         inputs=[pdf_input, language, download_raw, keep_original_margins, binarize_enabled,
                 binarize_block_size, binarize_c_constant, enable_formula,
                 font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14,
-                enable_ocr_correction, quality_cutoff, target_line_height, overlap_threshold],
+                enable_ocr_correction, quality_cutoff, enable_line_calibration, target_line_height, overlap_threshold],
         outputs=[
             output_file,           # Final PDF (None if corrections needed)
             binarized_file,        # Binarized PDF
