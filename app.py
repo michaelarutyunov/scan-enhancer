@@ -221,7 +221,7 @@ def process_pdf(
             # Create output filename with timestamp
             base_name = clean_filename(os.path.basename(pdf_path))
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = f"{base_name}_OCR_{timestamp}.pdf"
+            output_path = f"{base_name}_final_{timestamp}.pdf"
 
             # DEBUG: Trace code path
             print("=" * 80)
@@ -355,8 +355,11 @@ def apply_corrections_and_generate_pdf(
         # Load corrected layout
         layout_data = processor.load_layout()
 
-        # Generate PDF from corrected layout
-        output_pdf = os.path.join(temp_dir, "output_corrected.pdf")
+        # Generate PDF from corrected layout with proper filename
+        from datetime import datetime
+        base_name = clean_filename(os.path.basename(pdf_path))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_pdf = f"{base_name}_final_{timestamp}.pdf"
 
         use_consistent_margins = not keep_original_margins
         create_pdf_from_layout(
@@ -378,26 +381,13 @@ def apply_corrections_and_generate_pdf(
 with gr.Blocks(title="PDF Document Cleaner") as app:
     gr.Markdown("# 📚 PDF Document Cleaner")
 
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("""
-            **Features:**
-            - Multi-language OCR support
-            - Preserves document structure
-            """)
-        with gr.Column():
-            gr.Markdown("""
-            **Tips:**
-            - Maximum file size: 200 MB
-            - Ensure pages are properly oriented
-            """)
-        with gr.Column():
-            gr.Markdown("""
-            Powered by [MinerU](https://mineru.net/) - An open-source document parsing solution.
-            """)
+    gr.Markdown("""
+    Powered by [MinerU](https://mineru.net/) - An open-source document parsing solution.
+    """)
 
     with gr.Row():
         with gr.Column():
+            gr.Markdown("## Setup")
             gr.Markdown("### Document Language")
             language = gr.Dropdown(
                 choices=[
@@ -415,23 +405,11 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             gr.Markdown("---")
-            gr.Markdown("### ⚙️ Additional Settings")
-
-            download_raw = gr.Checkbox(
-                label="Download raw MinerU output (for diagnostics)",
-                value=False,
-                info="Enable to also download the raw MinerU ZIP file for debugging"
-            )
-
-            keep_original_margins = gr.Checkbox(
-                label="Keep original page margins",
-                value=True,
-                info="When unchecked, uses consistent 1cm margins on all sides"
-            )
+            gr.Markdown("### De-noising")
 
             binarize_enabled = gr.Checkbox(
                 label="Pre-process PDF (binarize before sending to API)",
-                value=False,
+                value=True,
                 info="Improves text clarity for noisy scans. Adds ~10-20 seconds."
             )
 
@@ -453,9 +431,24 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 info="Subtracted from local mean. Lower=more white (fewer dots), Higher=more black. (default: 25)"
             )
 
+            gr.Markdown("---")
+            gr.Markdown("### ⚙️ Additional Settings")
+
+            download_raw = gr.Checkbox(
+                label="Download raw MinerU output (for diagnostics)",
+                value=True,
+                info="Enable to also download the raw MinerU ZIP file for debugging"
+            )
+
+            keep_original_margins = gr.Checkbox(
+                label="Keep original page margins",
+                value=True,
+                info="When unchecked, uses consistent 1cm margins on all sides"
+            )
+
             enable_formula = gr.Checkbox(
                 label="Enable formula detection",
-                value=True,
+                value=False,
                 info="Disable if text is being misclassified as equations (e.g., single letters or special characters)"
             )
 
@@ -471,7 +464,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             quality_cutoff = gr.Slider(
                 minimum=0.0,
                 maximum=1.0,
-                value=0.95,
+                value=0.9,
                 step=0.01,
                 label="Quality Cut-off",
                 info="Confidence threshold (lower = more items to review). Recommended: 0.85-0.95",
@@ -527,6 +520,9 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
         with gr.Column():
+            gr.Markdown("## Workflow")
+            gr.Markdown("**Tips:** 1) Maximum file size: 200 MB, 2) Vertical page orientation")
+
             pdf_input = gr.File(
                 label="Upload PDF Document",
                 file_types=[".pdf"],
