@@ -832,6 +832,9 @@ class DocumentBuilder:
         else:
             print(f"DEBUG: Flow mode - Using provided margin: {margin:.1f}pt")
 
+        # Store margin for finalize() to use
+        self._flow_margin = margin
+
         # Page dimensions with calculated/provided margins
         page_width_pt, page_height_pt = A4
         available_width = page_width_pt - (2 * margin)
@@ -1419,8 +1422,13 @@ class DocumentBuilder:
         """
         Save completed document to output path.
         """
-        # Use consistent 1cm margins if requested, otherwise use default 2cm
-        margin = 1 * cm if self.use_consistent_margins else 2 * cm
+        # Use flow margin if set (from flow mode), otherwise use consistent 1cm or default 2cm
+        if hasattr(self, '_flow_margin'):
+            margin = self._flow_margin
+            print(f"DEBUG: finalize() - Using flow margin: {margin:.1f}pt")
+        else:
+            margin = 1 * cm if self.use_consistent_margins else 2 * cm
+            print(f"DEBUG: finalize() - Using standard margin: {margin:.1f}pt")
 
         doc = SimpleDocTemplate(
             self.output_path,
