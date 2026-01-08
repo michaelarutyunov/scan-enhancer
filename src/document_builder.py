@@ -858,8 +858,14 @@ class DocumentBuilder:
                 if last_block_bottom is not None:
                     gap = block_top - last_block_bottom
                     if gap > GAP_THRESHOLD_PX:
-                        # Insert gap spacer
-                        pages[page_idx].append(('spacer', LARGE_SPACER, 0))
+                        # Insert gap spacer (using dict format like other items)
+                        pages[page_idx].append({
+                            'type': 'spacer',
+                            'content': LARGE_SPACER,
+                            'spacing': 0,
+                            'is_first_in_group': False,
+                            'is_last_in_group': False
+                        })
 
                 # Extract text lines from block
                 text_lines = self._extract_text_lines_from_block(block)
