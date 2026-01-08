@@ -190,6 +190,40 @@ class DocumentBuilder:
             spaceAfter=6,
         )
 
+        # Flow mode styles (used when keep_original_margins=False)
+        # Titles: 14pt bold, centered, larger spacing after
+        self.flow_title_style = ParagraphStyle(
+            'FlowTitle',
+            parent=self.styles['Normal'],
+            fontName=self.font_name_bold,
+            fontSize=14,
+            leading=17,  # ~1.2x for titles
+            alignment=TA_CENTER,
+            spaceAfter=0.4 * cm,  # Larger interval after titles (base value, will be adjusted dynamically)
+        )
+
+        # Body text: 10.5pt, narrower line spacing (1.14x)
+        self.flow_body_style = ParagraphStyle(
+            'FlowBody',
+            parent=self.styles['Normal'],
+            fontName=self.font_name,
+            fontSize=10.5,
+            leading=12,  # Narrower line spacing (1.14x)
+            alignment=TA_JUSTIFY,
+            spaceAfter=0.1 * cm,  # Base spacing (will be adjusted dynamically)
+        )
+
+        # Discarded blocks (page numbers, footnotes): small, centered
+        self.flow_discarded_style = ParagraphStyle(
+            'FlowDiscarded',
+            parent=self.styles['Normal'],
+            fontName=self.font_name,
+            fontSize=8,
+            leading=10,
+            alignment=TA_CENTER,
+            spaceAfter=0,
+        )
+
     def add_from_mineru_json(self, content: Any):
         """
         Build PDF from MinerU JSON output.
@@ -704,6 +738,208 @@ class DocumentBuilder:
             else:
                 print(f"Warning: Image file not found: {full_path}")
 
+    def _calculate_content_height_with_spacing(
+        self,
+        content_items: List[Tuple[str, Any, float]],
+        page_width: float,
+        available_height: float
+    ) -> Tuple[float, float]:
+        """
+        Calculate total height of content items with their spacing.
+
+        Args:
+            content_items: List of (item_type, content, base_spacing) tuples
+                          item_type: 'text', 'title', 'discarded', 'image'
+                          content: text string for text items, or (path, width, height) for images
+                          base_spacing: spaceAfter value in points
+            page_width: Available page width in points
+            available_height: Available page height in points
+
+        Returns:
+            Tuple of (total_height, spacing_sum) in points
+        """
+        total_height = 0
+        spacing_sum = 0
+
+        for item_type, content, base_spacing in content_items:
+            if item_type in ('text', 'title', 'discarded'):
+                # Determine appropriate style
+                if item_type == 'title':
+                    style = self.flow_title_style
+                elif item_type == 'discarded':
+                    style = self.flow_discarded_style
+                else:
+                    style = self.flow_body_style
+
+                # Create temporary paragraph and measure its height
+                # Clean text for ReportLab
+                clean_text = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                temp_para = Paragraph(clean_text, style)
+                _, text_height = temp_para.wrap(page_width, available_height)
+                total_height += text_height
+                spacing_sum += base_spacing
+            elif item_type == 'image':
+                # Images have fixed height (path, width, height in points)
+                _, _, height = content
+                total_height += height
+                spacing_sum += base_spacing
+
+        return total_height, spacing_sum
+
+    def add_from_layout_json_flow(self, layout_data: Dict):
+        """
+        Build PDF from layout.json using flow-based rendering with dynamic spacing.
+
+        This method processes layout.json structure but uses ReportLab flowables
+        (Paragraph, Spacer) instead of exact canvas positioning. Spacing is
+        dynamically adjusted to fit content on each page.
+
+        Args:
+            layout_data: Parsed layout.json content with pdf_info array
+        """
+        pdf_info = layout_data.get("pdf_info", [])
+        if not pdf_info:
+            print("Warning: No pdf_info in layout data")
+            return
+
+        # Page dimensions for A4 with 1cm margins
+        page_width_pt, page_height_pt = A4
+        margin = 1 * cm
+        available_width = page_width_pt - (2 * margin)
+        available_height = page_height_pt - (2 * margin)
+
+        # Group blocks by page_idx
+        from collections import defaultdict
+        pages = defaultdict(list)
+
+        for page_data in pdf_info:
+            page_idx = page_data.get("page_idx", 0)
+
+            # Process content blocks (preproc_blocks)
+            preproc_blocks = page_data.get("preproc_blocks", [])
+            for block in preproc_blocks:
+                block_type = block.get("type", "text")
+
+                # Extract text lines from block
+                text_lines = self._extract_text_lines_from_block(block)
+
+                if block_type == "image":
+                    # Extract image dimensions
+                    bbox = block.get("bbox", [0, 0, 100, 100])
+                    # Find image path
+                    blocks = block.get("blocks", [])
+                    image_path = None
+                    for sub_block in blocks:
+                        lines = sub_block.get("lines", [])
+                        for line in lines:
+                            spans = line.get("spans", [])
+                            for span in spans:
+                                if span.get("type") == "image":
+                                    image_path = span.get("image_path")
+                                    break
+                            if image_path:
+                                break
+                        if image_path:
+                            break
+
+                    # Calculate image height in points
+                    bbox_height = bbox[3] - bbox[1]
+                    dpi = self._dpi
+                    image_height_pt = bbox_height / dpi * 72
+
+                    pages[page_idx].append(('image', (image_path, available_width, image_height_pt), 0.1 * cm))
+
+                elif text_lines:
+                    # Add text content
+                    for line in text_lines:
+                        if block_type == "title":
+                            pages[page_idx].append(('title', line, 0.4 * cm))
+                        else:
+                            pages[page_idx].append(('text', line, 0.1 * cm))
+
+            # Process discarded blocks (page numbers, footnotes) - add at end
+            discarded_blocks = page_data.get("discarded_blocks", [])
+            for block in discarded_blocks:
+                text_lines = self._extract_text_lines_from_block(block)
+                for line in text_lines:
+                    pages[page_idx].append(('discarded', line, 0))
+
+        # Process each page
+        for page_idx in sorted(pages.keys()):
+            content_items = pages[page_idx]
+
+            # Skip first page's page break
+            if page_idx > 0:
+                self.story.append(PageBreak())
+
+            # Calculate total height with base spacing
+            total_text_height, total_spacing = self._calculate_content_height_with_spacing(
+                content_items, available_width, available_height
+            )
+            total_height = total_text_height + total_spacing
+
+            # Calculate spacing multiplier if overflow
+            multiplier = 1.0
+            if total_height > available_height:
+                multiplier = available_height / total_height
+
+                # Apply limits
+                if multiplier < 0.4:
+                    print(f"Warning: Page {page_idx + 1} content too large. Spacing reduced to 40% minimum.")
+                    multiplier = 0.4
+                else:
+                    print(f"Info: Page {page_idx + 1} spacing adjusted to {multiplier * 100:.1f}% to fit content.")
+
+            # Render content with adjusted spacing
+            for item_type, content, base_spacing in content_items:
+                if item_type in ('text', 'title', 'discarded'):
+                    # Select style
+                    if item_type == 'title':
+                        base_style = self.flow_title_style
+                    elif item_type == 'discarded':
+                        base_style = self.flow_discarded_style
+                    else:
+                        base_style = self.flow_body_style
+
+                    # Adjust spacing
+                    adjusted_spacing = base_spacing * multiplier
+                    if adjusted_spacing < 0.1 * cm:
+                        adjusted_spacing = 0.1 * cm  # Minimum threshold
+
+                    # Create style with adjusted spacing
+                    style = ParagraphStyle(
+                        f'Adjusted_{item_type}',
+                        parent=base_style,
+                        spaceAfter=adjusted_spacing,
+                    )
+
+                    # Clean text and add paragraph
+                    clean_text = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    self.story.append(Paragraph(clean_text, style))
+
+                elif item_type == 'image':
+                    # Add image with original size
+                    image_path, img_width, img_height = content
+
+                    if image_path and self.temp_dir:
+                        # Construct full path
+                        full_path = os.path.join(self.temp_dir, "images", image_path)
+                        if not os.path.exists(full_path):
+                            full_path = os.path.join(self.temp_dir, image_path)
+
+                        if os.path.exists(full_path):
+                            try:
+                                from reportlab.platypus import Image as RLImage
+                                rl_image = RLImage(full_path, width=img_width, height=img_height)
+                                # Adjust spacing after image
+                                adjusted_spacing = base_spacing * multiplier
+                                if adjusted_spacing < 0.1 * cm:
+                                    adjusted_spacing = 0.1 * cm
+                                self.story.append(rl_image)
+                                self.story.append(Spacer(1, adjusted_spacing))
+                            except Exception as e:
+                                print(f"Warning: Could not add image {full_path}: {e}")
+
     def finalize_layout(self):
         """
         Finalize document when using layout-based rendering.
@@ -1078,4 +1314,37 @@ def create_pdf_from_layout(
     builder = DocumentBuilder(output_path, temp_dir=temp_dir, font_buckets=font_buckets)
     builder.add_from_layout_json(layout_data, use_consistent_margins=use_consistent_margins)
     # Note: add_from_layout_json() saves the document directly
+    return output_path
+
+
+def create_pdf_from_layout_flow(
+    output_path: str,
+    layout_data: Dict,
+    temp_dir: str = None,
+    font_buckets: dict = None
+) -> str:
+    """
+    Create PDF from MinerU layout.json using flow-based rendering with dynamic spacing.
+
+    This method uses ReportLab flowables (Paragraph, Spacer) instead of exact
+    canvas positioning. Spacing is dynamically adjusted to fit content on each page.
+
+    Styling:
+    - Titles: 14pt bold, centered, larger spacing after
+    - Body text: 10.5pt, narrower line spacing (12pt leading = 1.14x)
+    - Discarded: 8pt, centered (page numbers, footnotes)
+    - Images: Fixed size (not scaled)
+
+    Args:
+        output_path: Where to save the PDF
+        layout_data: Parsed layout.json content with pdf_info array
+        temp_dir: Temporary directory containing extracted images
+        font_buckets: Optional dict with custom bbox height thresholds (not used in flow mode)
+
+    Returns:
+        Path to created document
+    """
+    builder = DocumentBuilder(output_path, temp_dir=temp_dir, font_buckets=font_buckets)
+    builder.add_from_layout_json_flow(layout_data)
+    builder.finalize()
     return output_path

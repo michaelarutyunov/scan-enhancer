@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.mineru_processor import MinerUAPIProcessor
-from src.document_builder import create_pdf_from_mineru, create_pdf_from_layout
+from src.document_builder import create_pdf_from_mineru, create_pdf_from_layout, create_pdf_from_layout_flow
 from src.utils import validate_pdf_path, check_file_size_limit, clean_filename
 from src.pdf_preprocessor import preprocess_pdf, is_available, fix_overlapping_blocks
 
@@ -252,26 +252,30 @@ def process_pdf(
                 if enable_line_calibration:
                     layout_data = fix_overlapping_blocks(layout_data, target_line_height=target_line_height, overlap_threshold=overlap_threshold)
 
-                # Use layout.json for exact positioning
-                # Apply consistent margins if user requested them
-                use_consistent_margins = not keep_original_margins
                 if keep_original_margins:
+                    # Use layout.json for exact positioning with original margins
                     print("DEBUG: Using layout.json for exact positioning (original margins)")
+                    create_pdf_from_layout(
+                        output_path=output_path,
+                        layout_data=layout_data,
+                        temp_dir=temp_dir,
+                        use_consistent_margins=False,
+                        font_buckets={
+                            "bucket_9": font_bucket_9,
+                            "bucket_10": font_bucket_10,
+                            "bucket_11": font_bucket_11,
+                            "bucket_12": font_bucket_12,
+                            "bucket_14": font_bucket_14,
+                        }
+                    )
                 else:
-                    print("DEBUG: Using layout.json for exact positioning (1.5cm margins)")
-                create_pdf_from_layout(
-                    output_path=output_path,
-                    layout_data=layout_data,
-                    temp_dir=temp_dir,
-                    use_consistent_margins=use_consistent_margins,
-                    font_buckets={
-                        "bucket_9": font_bucket_9,
-                        "bucket_10": font_bucket_10,
-                        "bucket_11": font_bucket_11,
-                        "bucket_12": font_bucket_12,
-                        "bucket_14": font_bucket_14,
-                    }
-                )
+                    # Use layout.json with flow-based rendering and dynamic spacing
+                    print("DEBUG: Using layout.json for flow-based rendering (14pt titles, 10.5pt body, dynamic spacing)")
+                    create_pdf_from_layout_flow(
+                        output_path=output_path,
+                        layout_data=layout_data,
+                        temp_dir=temp_dir,
+                    )
             else:
                 # Fallback to content_list.json for flow-based rendering
                 print("DEBUG: layout.json not available, using content_list.json for flow-based rendering")
@@ -384,14 +388,22 @@ def apply_corrections_and_generate_pdf(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_pdf = f"{original_base_name}_final_{timestamp}.pdf"
 
-        use_consistent_margins = not keep_original_margins
-        create_pdf_from_layout(
-            output_path=output_pdf,
-            layout_data=layout_data,
-            temp_dir=temp_dir,
-            use_consistent_margins=use_consistent_margins,
-            font_buckets=font_buckets
-        )
+        if keep_original_margins:
+            # Use exact positioning with original margins
+            create_pdf_from_layout(
+                output_path=output_pdf,
+                layout_data=layout_data,
+                temp_dir=temp_dir,
+                use_consistent_margins=False,
+                font_buckets=font_buckets
+            )
+        else:
+            # Use flow-based rendering with dynamic spacing
+            create_pdf_from_layout_flow(
+                output_path=output_pdf,
+                layout_data=layout_data,
+                temp_dir=temp_dir,
+            )
 
         final_status = f"{status_msg}\n✅ Final PDF generated successfully!"
         return output_pdf, final_status
