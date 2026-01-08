@@ -933,56 +933,14 @@ class DocumentBuilder:
                                 'is_last_in_group': is_last
                             })
                     else:
-                        # Regular text - join consecutive lines and check if combined text wraps
-                        calculated_font_size = None
-
-                        # Lines from extraction are pre-split by MinerU
-                        # Join consecutive lines that form a continuous sentence
-                        # (lines that don't end with terminal punctuation: . ! ? ...)
-                        line_groups = []
-                        current_group = []
-
+                        # Regular text - add each line as a separate paragraph
                         for line in text_lines:
-                            current_group.append(line)
-                            # Check if line ends with sentence-ending punctuation
-                            stripped = line.strip()
-                            if stripped.endswith(('.', '!', '?', '…', ':', ';')):
-                                # End of sentence/group
-                                line_groups.append(current_group)
-                                current_group = []
-                            # Otherwise, continue accumulating
-
-                        if current_group:
-                            line_groups.append(current_group)
-
-                        # Check each group for wrapping
-                        for group in line_groups:
-                            combined_text = ' '.join(group)
-                            clean_text = combined_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                            temp_para = Paragraph(clean_text, self.flow_body_style)
-                            text_width, text_height = temp_para.wrap(available_width, 1000)
-
-                            expected_single_line = self.flow_body_style.leading
-
-                            print(f"DEBUG wrap check: '{clean_text[:40]}...' text_height={text_height:.1f}, expected_single={expected_single_line:.1f}, ratio={text_height/expected_single_line:.2f}, lines_in_group={len(group)}")
-
-                            # If height is more than single line (1.1x for multi-line groups), text wraps
-                            if len(group) > 1 and text_height > expected_single_line * 1.1:
-                                # Text wraps - calculate font size needed
-                                calculated_font_size = self._calculate_font_size_for_single_line(
-                                    combined_text, available_width, self.flow_body_style
-                                )
-                                print(f"DEBUG: Multi-line group wraps (ratio {text_height/expected_single_line:.2f}), reducing block to {calculated_font_size}pt: '{clean_text[:50]}...'")
-                                break  # Apply same font size to entire block
-
-                        for i, line in enumerate(text_lines):
                             pages[page_idx].append({
                                 'type': 'text',
                                 'content': line,
                                 'spacing': 0.1 * cm,
                                 'is_first_in_group': False,
                                 'is_last_in_group': False,
-                                'font_size': calculated_font_size  # Will be None for blocks with no wrapping groups
                             })
 
                     # Update last block position
@@ -1081,22 +1039,11 @@ class DocumentBuilder:
                             space_before = 0.1 * cm
                         self.story.append(Spacer(1, space_before))
 
-                    # Check if this text item has a custom font size (from line wrapping detection)
-                    custom_font_size = item.get('font_size', None)
-
-                    # Create style with adjusted spacing and optional custom font size
-                    style_kwargs = {
-                        'parent': base_style,
-                        'spaceAfter': adjusted_spacing,
-                    }
-                    if custom_font_size is not None:
-                        style_kwargs['fontSize'] = custom_font_size
-                        # Adjust leading proportionally
-                        style_kwargs['leading'] = custom_font_size * 1.14
-
+                    # Create style with adjusted spacing
                     style = ParagraphStyle(
                         f'Adjusted_{item_type}',
-                        **style_kwargs
+                        parent=base_style,
+                        spaceAfter=adjusted_spacing,
                     )
 
                     # Clean text and add paragraph
@@ -1165,24 +1112,9 @@ class DocumentBuilder:
                 else:
                     style = self.flow_body_style
 
-                # Check if this item has a custom font size
-                custom_font_size = item.get('font_size', None)
-
                 # Create temporary paragraph and measure its height
                 clean_text = item['content'].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-                if custom_font_size is not None:
-                    # Use custom font size for height calculation
-                    temp_style = ParagraphStyle(
-                        'TempStyle',
-                        parent=style,
-                        fontSize=custom_font_size,
-                        leading=custom_font_size * 1.14,
-                    )
-                    temp_para = Paragraph(clean_text, temp_style)
-                else:
-                    temp_para = Paragraph(clean_text, style)
-
+                temp_para = Paragraph(clean_text, style)
                 _, text_height = temp_para.wrap(page_width, available_height)
                 total_height += text_height
                 spacing_sum += item['spacing']
@@ -1198,52 +1130,6 @@ class DocumentBuilder:
                 spacing_sum += item['spacing']
 
         return total_height, spacing_sum
-
-    def _calculate_font_size_for_single_line(
-        self,
-        text: str,
-        available_width: float,
-        base_style: ParagraphStyle,
-        min_font_size: float = 8.0
-    ) -> float:
-        """
-        Calculate the font size needed to fit text on a single line.
-
-        Args:
-            text: The text to fit
-            available_width: Available width in points
-            base_style: Base ParagraphStyle to use
-            min_font_size: Minimum font size to try (default 8pt)
-
-        Returns:
-            Font size that fits the text on one line, or min_font_size if not possible
-        """
-        # Start with base font size and reduce until text fits on one line
-        font_size = base_style.fontSize
-        clean_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        original_font_size = font_size
-
-        while font_size > min_font_size:
-            # Create style with current font size
-            test_style = ParagraphStyle(
-                'TestStyle',
-                parent=base_style,
-                fontSize=font_size,
-            )
-            # Create paragraph and measure
-            temp_para = Paragraph(clean_text, test_style)
-            text_width, text_height = temp_para.wrap(available_width, 1000)
-
-            # If text fits on one line (height close to font size), return this font size
-            # Single line height is approximately fontSize * 1.2
-            expected_single_line_height = font_size * 1.3
-            if text_height <= expected_single_line_height:
-                return font_size
-
-            # Reduce font size and try again (smaller increments for finer control)
-            font_size -= 0.25
-
-        return min_font_size
 
     def finalize_layout(self):
         """
