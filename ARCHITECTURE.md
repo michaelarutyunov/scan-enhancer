@@ -1,6 +1,6 @@
 # Architecture Documentation
 
-This document describes the system architecture, data flow, design decisions, and challenges encountered for the PDF Document Cleaner.
+This document describes the system architecture, data flow, design decisions, and implementation details for the PDF Document Cleaner.
 
 ## Table of Contents
 
@@ -8,10 +8,8 @@ This document describes the system architecture, data flow, design decisions, an
 2. [Component Architecture](#component-architecture)
 3. [Data Flow](#data-flow)
 4. [Design Decisions and Rationale](#design-decisions-and-rationale)
-5. [Key Challenges and Solutions](#key-challenges-and-solutions)
-6. [Options Considered But Not Implemented](#options-considered-but-not-implemented)
-7. [Error Handling Strategy](#error-handling-strategy)
-8. [Performance Considerations](#performance-considerations)
+5. [Key Implementation Details](#key-implementation-details)
+6. [Dependencies](#dependencies)
 
 ---
 
@@ -24,13 +22,13 @@ This document describes the system architecture, data flow, design decisions, an
 │  (app.py)    │     │(pdf_preproc) │     │  (External)  │     │  (Manual)    │     │(document_    │
 │              │     │              │     │              │     │(ocr_postproc)│     │  builder.py) │
 └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-       │                                                                 │                      │
-       │                                                          User corrections              │
-       │                                                          (if enabled)                  │
-       │                                          ┌──────────────┐                             │
-       └─────────────────────────────────────────▶│  Output PDF  │◀────────────────────────────┘
-                                                  │  (.pdf file)  │
-                                                  └──────────────┘
+       │                                                                 │
+       │                                                          User corrections
+       │                                                          (interactive)
+       │
+       └────────────────────────────────────────────────────────────────────▶
+                                                          Output PDF
+                                                  (<name>_final_<timestamp>.pdf)
 ```
 
 ### Core Problem Solved
@@ -39,6 +37,7 @@ The application processes scanned PDF documents to:
 1. **Extract text** via OCR while preserving document structure
 2. **Remove visual noise** from scans (binarization preprocessing)
 3. **Generate clean, searchable PDFs** with properly sized fonts
+4. **Enable manual correction** of low-confidence OCR results
 
 ---
 
@@ -46,30 +45,49 @@ The application processes scanned PDF documents to:
 
 ### 1. Gradio UI (`app.py`)
 
+**File:** `app.py` (653 lines)
+
 **Responsibilities:**
 - User interface for file upload and settings
 - Input validation (file type, size)
 - Progress tracking and error display
 - Orchestration of the processing pipeline
+- State management for OCR correction workflow
 
 **Key Functions:**
-- `process_pdf()`: Main processing pipeline that coordinates all components
+- `process_pdf()`: Main processing pipeline
+- `apply_corrections_and_generate_pdf()`: Applies user corrections and generates final PDF
+
+**UI Organization:**
+- **Left Column (Setup)**: Settings organized into sections
+  - Document Language (dropdown: ru, ch, en, japan, korean, german, french, spanish)
+  - De-noising (binarize toggle, block size slider, C constant slider)
+  - Additional Settings (diagnostics, margins, formula detection)
+  - OCR Quality Control (manual correction toggle, quality cutoff slider)
+  - Font Size Buckets (5 configurable thresholds)
+- **Right Column (Workflow)**: Processing interface
+  - Tips (file size, orientation)
+  - PDF upload
+  - Process button
+  - Output files and correction interface
 
 **Key Parameters:**
-- `output_format`: "json" (structured) or "markdown" (simple)
-- `language`: Document language for OCR accuracy
-- `enable_formula`: Enable/disable MinerU formula detection (default: true)
-- `binarize_enabled`: Whether to apply binarization preprocessing
-- `binarize_block_size`: Adaptive thresholding neighborhood size (11-51, odd)
-- `binarize_c_constant`: Threshold constant subtracted from mean (0-30, default: 25)
-- `font_bucket_*`: Thresholds for mapping bbox heights to font sizes (default: 17, 22, 28, 30, 32)
-- `keep_original_margins`: Use exact page positioning or consistent 1cm margins
+- `language`: Document language for OCR accuracy (default: "ru")
+- `binarize_enabled`: Whether to apply binarization preprocessing (default: True)
+- `binarize_block_size`: Adaptive thresholding neighborhood size, 11-51, odd (default: 31)
+- `binarize_c_constant`: Threshold constant subtracted from mean, 0-51 (default: 25)
+- `enable_formula`: Enable/disable MinerU formula detection (default: False)
+- `keep_original_margins`: Use exact page positioning or consistent 1.5cm margins (default: True)
+- `download_raw`: Download MinerU ZIP for diagnostics (default: True)
 - `enable_ocr_correction`: Enable manual OCR correction workflow (default: True)
-- `quality_cutoff`: Confidence threshold for flagging items (0.0-1.0, default: 0.95)
+- `quality_cutoff`: Confidence threshold for flagging items, 0.0-1.0 (default: 0.9)
+- `font_bucket_*`: Thresholds for mapping bbox heights to font sizes (default: 17, 22, 28, 30, 32)
 
 ---
 
 ### 2. PDF Preprocessor (`src/pdf_preprocessor.py`)
+
+**File:** `src/pdf_preprocessor.py` (214 lines)
 
 **Responsibilities:**
 - Convert PDF pages to images using pdf2image
@@ -80,6 +98,7 @@ The application processes scanned PDF documents to:
 - `preprocess_pdf()`: Main preprocessing pipeline with progress callback
 - `_adaptive_threshold()`: Gaussian-weighted local thresholding
 - `_morphological_cleanup()`: Remove small noise artifacts
+- `is_available()`: Check if dependencies are installed
 
 **Rationale:**
 Scanned documents often have:
@@ -89,17 +108,19 @@ Scanned documents often have:
 
 Binarization converts each pixel to pure black or white based on local neighborhood analysis, dramatically improving OCR accuracy.
 
-**Parameters Explained:**
-- `block_size`: Size of neighborhood for local threshold calculation
+**Parameters:**
+- `block_size`: Size of neighborhood for local threshold calculation (odd, 11-51)
   - Higher = smoother results, less sensitive to local variations
   - Lower = more detail, but may amplify noise
-- `c_constant`: Subtracted from local mean to determine threshold
+- `c_constant`: Subtracted from local mean to determine threshold (0-51)
   - **Higher = more black pixels** (lower threshold)
   - **Lower = more white pixels** (higher threshold)
 
 ---
 
 ### 3. MinerU API Processor (`src/mineru_processor.py`)
+
+**File:** `src/mineru_processor.py` (420 lines)
 
 **Responsibilities:**
 - Communicate with MinerU batch API
@@ -116,7 +137,7 @@ Binarization converts each pixel to pure black or white based on local neighborh
 ```python
 # Step 1: Get presigned URL
 POST /file-urls/batch
-→ {"batch_id": "uuid", "url": "https://..."}
+→ {"batch_id": "uuid", "file_urls": ["https://..."]}
 
 # Step 2: Upload file
 PUT {presigned_url}
@@ -128,7 +149,7 @@ GET /extract-results/batch/{batch_id}
 
 # Step 4: Download results
 GET {full_zip_url}
-→ ZIP with content, layout.json, images/
+→ ZIP with layout.json, content_list.json, full.md, images/
 ```
 
 **Rationale for Batch Upload:**
@@ -141,6 +162,8 @@ The single-file endpoint only accepts URLs, not file uploads. Therefore, a two-s
 
 ### 4. Document Builder (`src/document_builder.py`)
 
+**File:** `src/document_builder.py` (1,082 lines)
+
 **Responsibilities:**
 - Parse MinerU JSON/Markdown output
 - Calculate DPI from page dimensions
@@ -149,6 +172,10 @@ The single-file endpoint only accepts URLs, not file uploads. Therefore, a two-s
 
 **Key Classes:**
 - `DocumentBuilder`: Main PDF building class with DPI-aware coordinate conversion
+
+**Rendering Methods:**
+1. **Layout-based rendering** (`add_from_layout_json`): Primary method using canvas-based absolute positioning
+2. **Flow-based rendering** (`add_from_mineru_json`): Fallback using ReportLab flowables
 
 **Critical Functions:**
 - `add_from_layout_json()`: Canvas-based rendering with exact positioning
@@ -171,22 +198,25 @@ bbox_height_pt = bbox_height_px / dpi * 72  # = 20.6 points
 # - TEXT: threshold-based mapping
 
 # Map text blocks to font size using buckets (default thresholds):
-if bbox_height_pt < 17.0:  font_size = 9pt
-elif bbox_height_pt < 22.0: font_size = 10pt
-elif bbox_height_pt < 28.0: font_size = 11pt
-elif bbox_height_pt < 30.0: font_size = 12pt
-elif bbox_height_pt < 32.0: font_size = 13pt
+if bbox_height_pt < 18.0:   font_size = 8pt
+elif bbox_height_pt < 17.0:  font_size = 9pt
+elif bbox_height_pt < 22.0:  font_size = 10pt
+elif bbox_height_pt < 28.0:  font_size = 11pt
+elif bbox_height_pt < 30.0:  font_size = 12pt
+elif bbox_height_pt < 32.0:  font_size = 13pt
 else: font_size = 14pt
 ```
 
 **Font Handling:**
-- DejaVu Sans (bundled) → Fallback to system fonts → Helvetica (last resort)
+- DejaVu Sans (bundled) → System fonts → Helvetica (last resort)
 - Helvetica does NOT support Cyrillic characters
 - Font registration happens per-document to ensure availability
 
 ---
 
 ### 5. OCR Post-Processor (`src/ocr_postprocessor.py`)
+
+**File:** `src/ocr_postprocessor.py` (235 lines)
 
 **Responsibilities:**
 - Extract low-confidence OCR results from MinerU layout.json
@@ -201,10 +231,10 @@ else: font_size = 14pt
 - `apply_corrections()`: Patch layout.json with corrections (creates backup)
 
 **Key Parameters:**
-- `quality_threshold`: Confidence score cutoff (0.0-1.0, default: 0.95)
+- `quality_threshold`: Confidence score cutoff (0.0-1.0, default: 0.9)
   - Spans with score < threshold are flagged for review
-  - Lower threshold = stricter (more items to review)
-  - Higher threshold = lenient (fewer items)
+  - Lower threshold = more items to review
+  - Higher threshold = fewer items
 
 **Rationale:**
 MinerU provides confidence scores for each text span. Low-confidence text often contains:
@@ -221,6 +251,8 @@ Manual correction is more reliable than automated grammar checking because:
 ---
 
 ### 6. Utilities (`src/utils.py`)
+
+**File:** `src/utils.py` (102 lines)
 
 **Responsibilities:**
 - File validation (extension, size)
@@ -266,7 +298,7 @@ Manual correction is more reliable than automated grammar checking because:
    ├── GET full_zip_url
    ├── Extract ZIP to temp directory:
    │   ├── layout.json (bbox coordinates in pixels)
-   │   ├── *_content_list.json (structured content)
+   │   ├── content_list.json (structured content)
    │   ├── full.md (markdown content)
    │   ├── images/*.jpg (extracted images)
    │   └── *_origin.pdf (original file)
@@ -304,7 +336,7 @@ Manual correction is more reliable than automated grammar checking because:
    │   ├── Map to font size using thresholds
    │   └── Render at exact position with exact font
    ├── Embed images with proper scaling
-   └── Save to output path
+   └── Save to output path with format: <name>_final_<timestamp>.pdf
 
 7. RETURN TO USER
    ├── Main output: OCR-processed PDF
@@ -335,6 +367,7 @@ avg_dpi = (dpi_width + dpi_height) / 2
 - DPI is consistent across width and height for proper scans
 - Using average improves accuracy
 - Letter vs A4 detection handles both common sizes
+- Chooses the paper size with more consistent width/height DPI ratio
 
 **Alternatives Considered:**
 - **Assume 72 DPI**: Too low, would give tiny fonts
@@ -373,22 +406,27 @@ Initially set canvas size to pixel dimensions directly, causing ReportLab to int
 
 **Problem:** Need to map bbox heights to appropriate font sizes. Bbox height includes the font size plus line spacing (leading).
 
-**Solution:** Use threshold-based buckets:
+**Solution:** Use threshold-based buckets with configurable defaults:
 ```python
 # Line height ≈ font_size × 1.2
 # 9pt font → ~11pt line height
 # 10pt font → ~12pt line height
 # etc.
 
-if bbox_height_pt < 11.5:  return 9pt
-elif bbox_height_pt < 12.5: return 10pt
-# ... etc
+# Map text blocks to font size using buckets (default thresholds):
+if bbox_height_pt < 18.0:   font_size = 8pt
+elif bbox_height_pt < 17.0:  font_size = 9pt
+elif bbox_height_pt < 22.0:  font_size = 10pt
+elif bbox_height_pt < 28.0:  font_size = 11pt
+elif bbox_height_pt < 30.0:  font_size = 12pt
+elif bbox_height_pt < 32.0:  font_size = 13pt
+else: font_size = 14pt
 ```
 
 **Rationale:**
 - Median bbox height is stable measure for block
 - Thresholds account for leading (typically 1.2x font size)
-- User-adjustable for different documents
+- User-adjustable for different documents via UI sliders
 - Balances precision (discrete steps) vs flexibility
 
 **Alternatives Considered:**
@@ -415,9 +453,9 @@ elif bbox_height_pt < 12.5: return 10pt
 - User-adjustable parameters for different document types
 
 **Parameter Guidance:**
-- `block_size=31, c=20`: Good for typical text documents
-- `block_size=51, c=25`: Better for low-contrast scans
-- `block_size=15, c=10`: Preserves more detail but may keep noise
+- `block_size=31, c=25`: Good for typical text documents (default)
+- `block_size=51, c=30`: Better for low-contrast scans
+- `block_size=15, c=15`: Preserves more detail but may keep noise
 
 ---
 
@@ -427,7 +465,7 @@ elif bbox_height_pt < 12.5: return 10pt
 
 **Solution:** User choice via checkbox:
 - **Keep original margins**: Use exact page size from scan
-- **Use consistent margins**: Force A4 with 1cm margins
+- **Use consistent margins**: Force A4 with 1.5cm margins
 
 **Rationale:**
 - Original size preserves exact layout but may vary
@@ -478,11 +516,51 @@ rl_y = page_height - y2  # Flip Y coordinate
 
 ---
 
-## Key Challenges and Solutions
+### 8. Standardized Output Filename Format
+
+**Problem:** Output filenames need to be predictable and include timestamps to prevent overwrites.
+
+**Solution:** Always use consistent format:
+```python
+base_name = clean_filename(os.path.basename(pdf_path))
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_path = f"{base_name}_final_{timestamp}.pdf"
+```
+
+**Applied to:**
+- Normal processing (no OCR corrections needed)
+- OCR correction workflow (after user applies corrections)
+
+**Rationale:**
+- Predictable naming helps users find output files
+- Timestamp prevents overwrites
+- "_final" suffix clearly indicates this is the end product
+- Consistency improves UX
+
+---
+
+### 9. Interactive OCR Correction Workflow
+
+**Problem:** OCR is not perfect and users need a way to fix errors before final PDF generation.
+
+**Solution:** Two-stage workflow with interactive DataFrame:
+1. Extract low-confidence items based on quality threshold
+2. Display editable table with Page, Score, Type, Original, Correction columns
+3. User edits corrections and clicks "Apply Corrections"
+4. Apply corrections to layout.json and generate final PDF
+
+**Rationale:**
+- Preserves exact positioning information for applying corrections
+- User sees context (page, score, type) for each item
+- Can delete items by leaving correction blank
+- Creates backup before modifications
+- State management allows corrections to be applied after initial processing
+
+---
+
+## Key Implementation Details
 
 ### Challenge 1: Tiny Font Sizes
-
-**Symptom:** All text appeared at ~50% of expected size, despite correct font size calculations.
 
 **Root Cause:** Unit mismatch between MinerU (pixels) and ReportLab (points):
 - Page size: `[1275, 1650]` pixels (US Letter at 150 DPI)
@@ -505,8 +583,6 @@ canvas.setPageSize((page_width_pt, page_height_pt))
 
 ### Challenge 2: Font Size Still Wrong After DPI Fix
 
-**Symptom:** Fonts still appeared small after fixing DPI calculation.
-
 **Root Cause:** Bbox heights from MinerU were in pixels, but being used directly for font size mapping without conversion.
 
 **Solution:**
@@ -519,16 +595,9 @@ bbox_height_pt = bbox_height_px / dpi * 72
 font_size = get_font_size_from_bbox(bbox_height_pt)  # Correct!
 ```
 
-**Example:**
-- Bbox height: 43 pixels
-- At 150 DPI: 43 / 150 × 72 = 20.6 points
-- 20.6pt line height → 14pt font (using 1.2x leading ratio)
-
 ---
 
 ### Challenge 3: Images Not Rendering
-
-**Symptom:** Images appeared as broken or missing.
 
 **Root Cause:** MinerU extracts images to `images/` subfolder in ZIP. DocumentBuilder couldn't find them.
 
@@ -548,8 +617,6 @@ img_path = os.path.join(self.temp_dir, img_rel_path)
 
 ### Challenge 4: Binarization TypeError
 
-**Symptom:** `TypeError: Neither read(), read_bytes() nor is str or bytes` when calling `img2pdf.convert()`.
-
 **Root Cause:** img2pdf expects file-like objects, but was receiving PIL Image objects directly.
 
 **Solution:**
@@ -566,303 +633,54 @@ pdf_bytes = img2pdf.convert(image_buffers)
 
 ---
 
-### Challenge 5: Progress Callback Division by Zero
+### Challenge 5: Gradio 6.0.0 DataFrame Not Displaying Data
 
-**Symptom:** `ZeroDivisionError` in binarization progress callback.
-
-**Root Cause:** Progress callback called before page count was determined (total=0).
+**Root Cause:** Gradio 6.0.0 had rendering issues with DataFrame components initialized with `visible=False` that were later updated to `visible=True` with data.
 
 **Solution:**
-```python
-def progress_cb(page, total, msg):
-    if total > 0:
-        progress(0.05 + (0.1 * page / total), desc=msg)
-    else:
-        progress(0.05, desc=msg)
-```
-
----
-
-### Challenge 6: Poppler Not Installed on HF Spaces
-
-**Symptom:** `FileNotFoundError: pdfinfo not found` when using pdf2image.
-
-**Root Cause:** pdf2image requires Poppler utilities, but HF Spaces uses `packages.txt` not `apt.txt`.
-
-**Solution:**
-```bash
-# Wrong: apt.txt (not read by HF Spaces)
-poppler-utils
-
-# Correct: packages.txt (read by HF Spaces)
-poppler-utils
-```
-
-Required factory reset of Space to install system packages.
-
----
-
-### Challenge 7: C Constant Direction Confusion
-
-**Symptom:** Initial documentation had C constant effect backwards.
-
-**Root Cause:** Misunderstanding of adaptive threshold formula:
-```python
-threshold = mean neighborhood - C
-# Higher C → lower threshold → more pixels classified as black
-```
-
-**Solution:**
-- Corrected documentation and info text
-- Updated default C from 10 to 20 (fewer black dots)
-- Clarified: "Lower=more white, Higher=more black"
-
----
-
-## Options Considered But Not Implemented
-
-### 1. Local OCR Processing
-
-**Considered:** Running Tesseract or similar locally instead of using MinerU API.
-
-**Rejected because:**
-- Requires heavy ML models and dependencies
-- Computationally expensive (need GPU for good performance)
-- Language support requires installing language packs
-- Accuracy generally lower than commercial APIs
-
-**Trade-off:** API dependency vs local processing complexity
-
----
-
-### 2. Direct PDF Modification
-
-**Considered:** Modify original PDF directly (replace text layers) instead of rebuilding.
-
-**Rejected because:**
-- PDF structure is complex and fragile
-- Text extraction may be inaccurate or incomplete
-- Hard to preserve images and formatting
-- Limited control over output quality
-
-**Trade-off:** Full rebuild vs incremental modification
-
----
-
-### 3. Markdown-Only Processing
-
-**Considered:** Only support Markdown output, not JSON.
-
-**Rejected because:**
-- JSON preserves more structure (tables, images, layout)
-- Markdown loses positional information
-- Can't do exact positioning with Markdown
-- Users want clean PDFs that match original layout
-
-**Trade-off:** Simplicity vs feature richness
-
----
-
-### 4. Automatic Font Size Detection
-
-**Considered:** Use machine learning to predict optimal font sizes from bbox dimensions.
-
-**Rejected because:**
-- Requires training dataset
-- Overfitting risk to specific document types
-- User may want different sizing for accessibility
-- Threshold buckets are simpler and more transparent
-
-**Trade-off:** ML sophistication vs user control
-
----
-
-### 5. Batch Processing Multiple Files
-
-**Considered:** Allow uploading and processing multiple files at once.
-
-**Rejected because:**
-- Gradio UI complexity increases significantly
-- Progress tracking becomes more complex
-- API rate limiting concerns
-- Most users process one document at a time
-
-**Trade-off:** Feature richness vs UI simplicity
-
-**Future enhancement:** Could be added if there's demand
-
----
-
-### 6. Caching Processed Documents
-
-**Considered:** Cache results to avoid reprocessing same file.
-
-**Rejected because:**
-- Storage costs on HF Spaces
-- Cache invalidation complexity
-- Privacy concerns (storing user documents)
-- Most documents are unique
-
-**Trade-off:** Performance vs privacy/cost
-
----
-
-### 7. Advanced Image Enhancement
-
-**Considered:** Add deskewing, perspective correction, or other image preprocessing.
-
-**Rejected because:**
-- Increases dependency count significantly
-- May introduce artifacts
-- MinerU API handles some of this
-- Binarization is sufficient for most cases
-
-**Trade-off:** Feature completeness vs simplicity
-
----
-
-## Error Handling Strategy
-
-### API Errors
-
-```python
-# Extract meaningful error from MinerU response
-error_msg = first_result.get("err_msg", "Unknown error")
-if state == "failed":
-    return {
-        "status": "failed",
-        "result": {"error": error_msg}
-    }
-```
-
-### File Validation
-
-```python
-# Multi-layer validation
-if not validate_pdf_path(pdf_path):
-    raise gr.Error("Invalid file. Please upload a PDF file.")
-
-is_valid, size_mb, msg = check_file_size_limit(pdf_path, max_mb=200)
-if not is_valid:
-    raise gr.Error(msg)
-```
-
-### Timeout Handling
-
-```python
-# Poll with configurable timeout
-if time.time() - start_time > max_wait_seconds:
-    raise TimeoutError(f"Task {task_id} did not complete in {max_wait_seconds}s")
-```
-
-### Graceful Degradation
-
-```python
-# Font registration fallback
-try:
-    pdfmetrics.registerFont(TTFont(font_path, font_path))
-except:
-    # Try next font path
-    try:
-        pdfmetrics.registerFont(TTFont(system_font_path, font_path))
-    except:
-        # Last resort
-        font_name = 'Helvetica'  # May not support Cyrillic
-```
-
----
-
-## Performance Considerations
-
-### File Size Limits
-
-| Metric | Limit | Rationale |
-|--------|-------|-----------|
-| Upload | 200 MB | MinerU API constraint |
-| Processing | 10 min | API timeout |
-| Pages | 600 | API constraint |
-| Polling interval | 5 sec | Balance responsiveness vs load |
-
-### Optimization Opportunities
-
-1. **Streaming PDF generation**: Currently builds entire PDF in memory. Could stream for large documents.
-
-2. **Parallel page processing**: Binarization and some rendering could be parallelized.
-
-3. **Incremental rendering**: Render pages as they're processed rather than waiting for all.
-
-4. **Result caching**: Cache by file hash for repeated processing.
-
-**Current stance:** Optimization not critical yet. Profile before optimizing.
-
----
-
-## Security Considerations
-
-### API Key Management
-
-- Stored in HF Spaces secret (`MINERU_API_KEY`)
-- Never logged or exposed in error messages
-- Passed via `Authorization: Bearer {token}` header
-
-### File Handling
-
-- Temporary files cleaned up after processing
-- No persistent storage of user uploads
-- Input validation on file type and size
-- Sanitized filenames for downloads
-
-### Dependency Security
-
-- Use pinned versions in requirements.txt
-- Regular updates for security patches
-- Minimal dependencies to reduce attack surface
-
----
-
-## Future Improvements
-
-### High Priority
-
-1. **Additional paper sizes**: Support Legal, A3, etc.
-2. **Custom font paths**: Allow users to upload custom fonts
-3. **Advanced binarization**: Add Otsu, Sauvola methods
-
-### Medium Priority
-
-1. **DOCX output**: Export to Word format
-2. **Batch processing**: Handle multiple files
-3. **Quality presets**: Pre-configured parameter sets
-
-### Low Priority
-
-1. **LaTeX rendering**: Native equation rendering
-2. **Table extraction**: Preserve table structure better
-3. **Language detection**: Auto-detect document language
+1. Upgraded to Gradio 6.2.0
+2. Updated `requirements.txt`: `gradio>=6.2.0`
+3. Updated `README.md` metadata: `sdk_version: 6.2.0`
 
 ---
 
 ## Dependencies
 
+### Python Dependencies
+
 ```
-gradio>=6.0.0          # UI framework
-reportlab>=4.0.0      # PDF generation
-requests>=2.31.0      # HTTP client
-python-dotenv>=1.0.0  # Environment config
-Pillow>=10.0.0        # Image processing
-opencv-python>=4.8.0  # Binarization (optional)
-pdf2image>=1.16.0     # PDF to images (optional)
-img2pdf>=0.4.4        # Images to PDF (optional)
-numpy>=1.24.0         # Array operations (optional)
+gradio>=6.2.0          # UI framework (upgraded for DataFrame fix)
+reportlab>=4.0.0       # PDF generation
+requests>=2.31.0       # HTTP client
+python-dotenv>=1.0.0   # Environment config
+Pillow>=10.0.0         # Image processing
+pandas>=2.0.0          # DataFrame operations for OCR corrections
+opencv-python>=4.8.0   # Binarization
+pdf2image>=1.16.0      # PDF to images
+img2pdf>=0.4.4         # Images to PDF
+numpy>=1.24.0          # Array operations
 ```
 
-**Optional dependencies** (required only if binarization is enabled):
-- opencv-python
-- pdf2image
-- img2pdf
-- numpy
+**Core dependencies:**
+- gradio>=6.2.0: UI framework with DataFrame bug fixes
+- pandas>=2.0.0: Required for OCR correction table handling
+- reportlab>=4.0.0: PDF generation
+
+**Optional dependencies** (required for binarization):
+- opencv-python>=4.8.0
+- pdf2image>=1.16.0
+- img2pdf>=0.4.4
+- numpy>=1.24.0
 
 The app gracefully handles missing optional dependencies by disabling binarization feature.
+
+### System Dependencies
+
+```
+fonts-dejavu-core    # Cyrillic font support
+fonts-dejavu-extra   # Extended font variants
+poppler-utils        # PDF to image conversion
+```
 
 ---
 

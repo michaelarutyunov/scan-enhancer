@@ -18,9 +18,10 @@ A HuggingFace Spaces application that processes scanned PDF documents using **Mi
 
 - **Multi-Language OCR**: Supports 109 languages including Russian, powered by MinerU
 - **Structure Preservation**: Extracts and preserves headings, paragraphs, lists, tables, and images
-- **Binarization Preprocessing**: Optional noise reduction for improved OCR accuracy
-- **Format Options**: Output as JSON (structured) or Markdown (simple text)
-- **PDF Output**: Generates clean, searchable PDF documents with properly sized fonts
+- **Binarization Preprocessing**: Enabled by default for improved OCR accuracy on noisy scans
+- **OCR Manual Correction**: Review and fix low-confidence text before generating PDF
+- **Smart Font Sizing**: DPI-aware coordinate conversion for properly sized fonts
+- **PDF Output**: Generates clean, searchable PDFs with predictable filenames
 - **Cloud Processing**: Uses MinerU cloud API - no local ML models needed
 
 ## How It Works
@@ -33,7 +34,7 @@ A HuggingFace Spaces application that processes scanned PDF documents using **Mi
          │
          ▼
 ┌─────────────────────────────┐
-│  Optional: Binarization     │
+│  Binarization (default ON)  │
 │  - Remove noise & speckles  │
 │  - Improve contrast         │
 └────────┬────────────────────┘
@@ -43,6 +44,15 @@ A HuggingFace Spaces application that processes scanned PDF documents using **Mi
 │  MinerU Cloud API           │
 │  - OCR with language model  │
 │  - Extract layout/structure │
+│  - Confidence scores        │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│  OCR Quality Check          │
+│  IF confidence < 0.9:       │
+│  → Manual correction table  │
+│  ELSE: Skip to PDF          │
 └────────┬────────────────────┘
          │
          ▼
@@ -55,11 +65,12 @@ A HuggingFace Spaces application that processes scanned PDF documents using **Mi
 └────────┬────────────────────┘
          │
          ▼
-┌────────────────┐
-│  Clean PDF     │
-│  + Searchable  │
-│  + Proper fonts│
-└────────────────┘
+┌────────────────────────────┐
+│  Clean PDF                 │
+│  + Searchable              │
+│  + Proper fonts            │
+│  + <name>_final_<time>.pdf │
+└────────────────────────────┘
 ```
 
 ### Why This Tool?
@@ -81,15 +92,12 @@ This tool produces:
 ### Quick Start
 
 1. Upload a scanned PDF document (max 200 MB, 600 pages)
-2. **Optional**: Enable "Pre-process PDF" to apply binarization for noisy scans
+2. **Optional**: Adjust "Pre-process PDF" settings for noisy scans
 3. Select document language (Russian, English, Chinese, etc.) for better OCR accuracy
-4. Select output format:
-   - **JSON → PDF** (structured, preserves tables/images)
-   - **Markdown → PDF** (simple text)
-5. **Optional**: Adjust font size buckets if automatic sizing needs tuning
-6. Click "Process Document"
-7. Wait for processing (typically 10-60 seconds)
-8. Download the cleaned PDF
+4. **Optional**: Adjust font size buckets if automatic sizing needs tuning
+5. Click "🔍 De-noise & OCR"
+6. **If low-confidence items found**: Review and correct in the table, then click "✅ Apply Corrections"
+7. Download the cleaned PDF
 
 ### Advanced Settings
 
@@ -106,27 +114,34 @@ Enable this for documents with:
   - Lower = more detail, may amplify noise
   - Default: 31 (good for most documents)
 
-- **C constant** (0-30): Threshold adjustment
+- **C constant** (0-51): Threshold adjustment
   - **Higher = more black** (lower threshold)
   - **Lower = more white** (higher threshold)
-  - Default: 20 (cleaner results)
+  - Default: 25 (cleaner results)
+
+#### OCR Quality Control
+
+- **Manual Correction**: Enable to review low-confidence OCR results
+- **Quality Cut-off** (0.0-1.0): Confidence threshold for flagging items
+  - Lower = more items to review
+  - Higher = fewer items
+  - Default: 0.9
 
 #### Font Size Buckets
 
 Adjust these if fonts appear too small/large:
-- **8pt → 9pt threshold** (default: 11.5pt)
-- **9pt → 10pt threshold** (default: 12.5pt)
-- **10pt → 11pt threshold** (default: 14.0pt)
-- **11pt → 12pt threshold** (default: 16.0pt)
-- **12pt → 14pt threshold** (default: 18.5pt)
 
-**How it works:** The tool measures bbox heights in the original document and maps them to font sizes. If your document has unusually large/small text, adjust these thresholds.
+| Slider | Default | Description |
+|--------|---------|-------------|
+| 8pt → 9pt | 17.0pt | Footnotes, page numbers |
+| 9pt → 10pt | 22.0pt | Small text |
+| 10pt → 11pt | 28.0pt | Body text |
+| 11pt → 12pt | 30.0pt | Section headers |
+| 12pt → 14pt | 32.0pt | Main titles |
 
 ## Technical Overview
 
 ### Architecture
-
-The application consists of several components:
 
 ```
 app.py (Gradio UI)
@@ -136,6 +151,9 @@ app.py (Gradio UI)
     │
     ├─→ mineru_processor.py (API client)
     │   └─→ MinerU Cloud API
+    │
+    ├─→ ocr_postprocessor.py (Manual correction)
+    │   └─→ pandas DataFrame
     │
     └─→ document_builder.py (PDF generation)
         └─→ ReportLab
@@ -173,28 +191,21 @@ y_reportlab = page_height - y_mineru
 **Problem:** Bbox height includes line spacing (leading), not just font size.
 
 **Solution:** Use threshold buckets based on typical line heights:
-- 9pt font → ~11pt line height
-- 10pt font → ~12pt line height
+- 9pt font → ~17pt line height
+- 10pt font → ~22pt line height
 - etc.
 
 User-adjustable for different documents.
 
 ### Design Decisions
 
-| Decision | Rationale | Alternatives Considered |
-|----------|-----------|------------------------|
-| Use MinerU API | Best OCR accuracy, no local compute | Local Tesseract (less accurate, heavy) |
-| Canvas-based rendering | Exact positioning, preserves layout | Flow-based (simpler, loses positioning) |
-| Threshold buckets | Transparent, user-adjustable | ML prediction (overkill, black box) |
-| Optional binarization | Not all documents need it | Always apply (unnecessary processing) |
-| DPI detection | Automatic, no user input | Ask user (friction, error-prone) |
-
-### Options Not Implemented
-
-1. **Local OCR processing**: Rejected due to computational cost and lower accuracy
-2. **Batch processing**: Rejected to keep UI simple (could be added later)
-3. **Caching**: Rejected due to privacy concerns and storage costs
-4. **Markdown-only**: Rejected because JSON preserves more structure
+| Decision | Rationale |
+|----------|-----------|
+| Use MinerU API | Best OCR accuracy, no local compute |
+| Canvas-based rendering | Exact positioning, preserves layout |
+| Threshold buckets | Transparent, user-adjustable |
+| Optional binarization | Not all documents need it |
+| DPI detection | Automatic, no user input |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed technical documentation.
 
@@ -234,11 +245,12 @@ The app will be available at `http://localhost:7860`
 ### Dependencies
 
 **Core:**
-- `gradio>=6.0.0` - UI framework
+- `gradio>=6.2.0` - UI framework
 - `reportlab>=4.0.0` - PDF generation
 - `requests>=2.31.0` - HTTP client
 - `python-dotenv>=1.0.0` - Environment config
 - `Pillow>=10.0.0` - Image processing
+- `pandas>=2.0.0` - DataFrame operations
 
 **Optional (for binarization):**
 - `opencv-python>=4.8.0` - Image processing
@@ -254,13 +266,14 @@ scan-enhancer/
 │   ├── mineru_processor.py   # MinerU API client
 │   ├── document_builder.py   # PDF output from API results
 │   ├── pdf_preprocessor.py   # Optional binarization
+│   ├── ocr_postprocessor.py  # OCR quality control
 │   └── utils.py              # Helper functions
 ├── fonts/
 │   ├── DejaVuSans.ttf        # Bundled Cyrillic font
 │   └── DejaVuSans-Bold.ttf   # Bundled bold font
 ├── app.py                    # Main Gradio application
 ├── requirements.txt          # Python dependencies
-├── packages.txt              # System dependencies (poppler)
+├── packages.txt              # System dependencies (poppler, fonts)
 ├── .env.example              # Environment variables template
 ├── README.md                 # This file
 └── ARCHITECTURE.md           # Detailed technical documentation
@@ -289,7 +302,7 @@ The automatic DPI detection may be incorrect for your document. Try:
 ### Poor OCR accuracy
 
 1. Enable binarization preprocessing
-2. Adjust binarization parameters (try C=15-25)
+2. Adjust binarization parameters (try C=20-30)
 3. Ensure correct document language is selected
 4. For very old documents, try increasing block size to 41-51
 

@@ -1,4 +1,4 @@
-"""Russian Textbook PDF Cleaner - Main Application
+"""Textbook PDF Cleaner - Main Application
 
 HuggingFace Spaces application for processing scanned PDFs using MinerU API.
 """
