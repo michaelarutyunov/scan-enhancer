@@ -213,7 +213,7 @@ def get_missing_dependencies() -> list:
     return missing
 
 
-def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overlap_threshold: int = -10) -> dict:
+def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overlap_threshold: int = -10, target_font: int = 9) -> dict:
     """
     Fix text overlap by reducing bbox heights to trigger smaller fonts.
 
@@ -230,6 +230,10 @@ def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overl
         overlap_threshold: Maximum negative gap to ignore (default -10px).
                           Only blocks with gap < overlap_threshold will be fixed.
                           Set to 0 to fix all overlaps, or -5/-15 for more/less aggressive fixing.
+        target_font: Target font size for overlapping blocks (default 9pt).
+                    Must be one of: 8, 9, 10, 11, 12, 13, 14.
+                    Smaller values = more aggressive (smaller font, less likely to overlap).
+                    Larger values = less aggressive (larger font, may still overlap).
 
     Returns:
         Modified layout_data with adjusted bbox heights for overlapping blocks
@@ -250,16 +254,11 @@ def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overl
         (14, 999), # >= 32pt → 14pt
     ]
 
-    # Safe font targets for each fixed_line_height value
-    # Based on: rendered_height = font * 1.2 * 1.15 = font * 1.38
-    # We need: font * 1.38 <= fixed_line_height
-    SAFE_FONTS = {
-        14: 9,   # 14pt spacing → 9pt font (2.1pt buffer)
-        16: 10,  # 16pt spacing → 10pt font (2.2pt buffer)
-        18: 11,  # 18pt spacing → 11pt font (2.8pt buffer)
-    }
-
-    target_font = SAFE_FONTS.get(fixed_line_height, 9)
+    # Validate target_font
+    valid_fonts = [f for f, _ in FONT_BUCKETS]
+    if target_font not in valid_fonts:
+        print(f"Warning: Invalid target_font {target_font}, must be one of {valid_fonts}. Using default 9.")
+        target_font = 9
 
     # Find the threshold for the target font
     target_threshold = None
@@ -328,6 +327,6 @@ def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overl
 
             blocks_fixed += 1
 
-    print(f"fix_overlapping_blocks: Fixed {blocks_fixed} blocks with severe overlaps (gap < {overlap_threshold}px)")
+    print(f"fix_overlapping_blocks: Fixed {blocks_fixed} blocks with severe overlaps (gap < {overlap_threshold}px) → target font: {target_font}pt")
 
     return layout_data
