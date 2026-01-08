@@ -854,8 +854,8 @@ class DocumentBuilder:
                 bbox = block.get("bbox", [0, 0, 100, 100])
                 block_top = bbox[1]
 
-                # Check for gap between blocks
-                if last_block_bottom is not None:
+                # Check for gap between blocks (but NOT before titles, as they have their own spacing)
+                if last_block_bottom is not None and block_type != 'title':
                     gap = block_top - last_block_bottom
                     if gap > GAP_THRESHOLD_PX:
                         # Insert gap spacer (using dict format like other items)
@@ -941,16 +941,25 @@ class DocumentBuilder:
                 if not text_lines:
                     continue
 
-                bbox = block.get("bbox", [0, 0, 100, 100])
-                block_bottom = bbox[3]
-
-                # Determine if page number or footnote based on position
-                # Page numbers are typically at the bottom 15% of the page
-                is_page_number = block_bottom > (page_height_px * 0.85)
-
+                # Determine if page number or footnote based on content
+                # Page numbers are typically numeric (with optional dashes/spaces)
+                # Footnotes contain actual text content
                 for line in text_lines:
+                    # Check if line is purely numeric (with optional dashes, spaces, roman numerals)
+                    # Remove common formatting and check if only numbers remain
+                    cleaned = line.strip().replace('-', '').replace('—', '').replace(' ', '').replace('.', '')
+                    # Check if it's a number (arabic or roman) or very short numeric-like string
+                    is_numeric = cleaned.isdigit() or len(cleaned) <= 3
+
+                    if is_numeric and len(line.strip()) < 20:
+                        # Short numeric/string → page number (right-aligned)
+                        block_type = 'page_number'
+                    else:
+                        # Contains actual text → footnote (left-aligned)
+                        block_type = 'footnote'
+
                     pages[page_idx].append({
-                        'type': 'page_number' if is_page_number else 'footnote',
+                        'type': block_type,
                         'content': line,
                         'spacing': 0,
                         'is_first_in_group': False,
