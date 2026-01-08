@@ -926,27 +926,46 @@ class DocumentBuilder:
                                 'is_last_in_group': is_last
                             })
                     else:
-                        # Regular text - check if ANY line in block wraps when rendered
+                        # Regular text - join consecutive lines and check if combined text wraps
                         calculated_font_size = None
 
-                        # Expected single line height based on style's leading
-                        expected_single_line = self.flow_body_style.leading
+                        # Lines from extraction are pre-split by MinerU
+                        # Join consecutive lines that form a continuous sentence
+                        # (lines that don't end with terminal punctuation: . ! ? ...)
+                        line_groups = []
+                        current_group = []
 
-                        # Check each line individually to see if it wraps
                         for line in text_lines:
-                            clean_line = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                            temp_para = Paragraph(clean_line, self.flow_body_style)
+                            current_group.append(line)
+                            # Check if line ends with sentence-ending punctuation
+                            stripped = line.strip()
+                            if stripped.endswith(('.', '!', '?', '…', ':', ';')):
+                                # End of sentence/group
+                                line_groups.append(current_group)
+                                current_group = []
+                            # Otherwise, continue accumulating
+
+                        if current_group:
+                            line_groups.append(current_group)
+
+                        # Check each group for wrapping
+                        for group in line_groups:
+                            combined_text = ' '.join(group)
+                            clean_text = combined_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                            temp_para = Paragraph(clean_text, self.flow_body_style)
                             text_width, text_height = temp_para.wrap(available_width, 1000)
 
-                            print(f"DEBUG wrap check: '{clean_line[:40]}...' text_height={text_height:.1f}, expected_single={expected_single_line:.1f}, ratio={text_height/expected_single_line:.2f}")
+                            expected_single_line = self.flow_body_style.leading
 
-                            # If height is significantly more than single line (1.3x), line wraps
-                            if text_height > expected_single_line * 1.3:
-                                # Line wraps - calculate font size needed
+                            print(f"DEBUG wrap check: '{clean_text[:40]}...' text_height={text_height:.1f}, expected_single={expected_single_line:.1f}, ratio={text_height/expected_single_line:.2f}, lines_in_group={len(group)}")
+
+                            # If height is more than single line (1.1x for multi-line groups), text wraps
+                            if len(group) > 1 and text_height > expected_single_line * 1.1:
+                                # Text wraps - calculate font size needed
                                 calculated_font_size = self._calculate_font_size_for_single_line(
-                                    line, available_width, self.flow_body_style
+                                    combined_text, available_width, self.flow_body_style
                                 )
-                                print(f"DEBUG: Line wraps (ratio {text_height/expected_single_line:.2f}), reducing block to {calculated_font_size}pt: '{clean_line[:50]}...'")
+                                print(f"DEBUG: Multi-line group wraps (ratio {text_height/expected_single_line:.2f}), reducing block to {calculated_font_size}pt: '{clean_text[:50]}...'")
                                 break  # Apply same font size to entire block
 
                         for i, line in enumerate(text_lines):
@@ -956,7 +975,7 @@ class DocumentBuilder:
                                 'spacing': 0.1 * cm,
                                 'is_first_in_group': False,
                                 'is_last_in_group': False,
-                                'font_size': calculated_font_size  # Will be None for blocks with no wrapping lines
+                                'font_size': calculated_font_size  # Will be None for blocks with no wrapping groups
                             })
 
                     # Update last block position
