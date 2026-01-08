@@ -802,6 +802,11 @@ class DocumentBuilder:
             print("Warning: No pdf_info in layout data")
             return
 
+        # Calculate DPI from page size (needed for image height conversion)
+        first_page_size = pdf_info[0].get("page_size", [612, 792])
+        self._dpi = self._calculate_dpi_from_page_size(first_page_size)
+        print(f"DEBUG: Flow mode - Calculated DPI from page size {first_page_size}: {self._dpi:.1f}")
+
         # Page dimensions for A4 with 1cm margins
         page_width_pt, page_height_pt = A4
         margin = 1 * cm
