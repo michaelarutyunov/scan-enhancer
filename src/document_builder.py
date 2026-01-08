@@ -824,9 +824,39 @@ class DocumentBuilder:
         self._dpi = self._calculate_dpi_from_page_size(first_page_size)
         print(f"DEBUG: Flow mode - Calculated DPI from page size {first_page_size}: {self._dpi:.1f}")
 
-        # Page dimensions for A4 with 0.5cm margins
+        # Calculate margins from original PDF layout
+        # Find the leftmost and rightmost content across all pages to determine margins
+        page_width_px, page_height_px = first_page_size
+
+        min_left = float('inf')
+        max_right = 0
+
+        for page_data in pdf_info:
+            preproc_blocks = page_data.get("preproc_blocks", [])
+            for block in preproc_blocks:
+                bbox = block.get("bbox", [0, 0, 100, 100])
+                # bbox is [x0, y0, x1, y1] where x0 is left, x1 is right
+                left = bbox[0]
+                right = bbox[2]
+                min_left = min(min_left, left)
+                max_right = max(max_right, right)
+
+        # Calculate margins in points (convert from pixels)
+        # left margin = min_left position
+        # right margin = page_width - max_right position
+        left_margin_pt = min_left / self._dpi * 72
+        right_margin_pt = (page_width_px - max_right) / self._dpi * 72
+
+        # Use the larger of the two margins for consistency
+        margin = max(left_margin_pt, right_margin_pt)
+
+        # Ensure minimum margin of 0.5cm and maximum of 2cm
+        margin = max(0.5 * cm, min(margin, 2 * cm))
+
+        print(f"DEBUG: Flow mode - Calculated margins: left={left_margin_pt:.1f}pt, right={right_margin_pt:.1f}pt, using={margin:.1f}pt")
+
+        # Page dimensions with calculated margins
         page_width_pt, page_height_pt = A4
-        margin = 0.5 * cm
         available_width = page_width_pt - (2 * margin)
         available_height = page_height_pt - (2 * margin)
 
