@@ -929,20 +929,24 @@ class DocumentBuilder:
                         # Regular text - check if ANY line in block wraps when rendered
                         calculated_font_size = None
 
+                        # Expected single line height based on style's leading
+                        expected_single_line = self.flow_body_style.leading
+
                         # Check each line individually to see if it wraps
                         for line in text_lines:
                             clean_line = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                             temp_para = Paragraph(clean_line, self.flow_body_style)
                             text_width, text_height = temp_para.wrap(available_width, 1000)
 
-                            # If height is significantly more than single line height, line wraps
-                            single_line_threshold = self.flow_body_style.fontSize * 1.3
-                            if text_height > single_line_threshold * 1.5:
+                            print(f"DEBUG wrap check: '{clean_line[:40]}...' text_height={text_height:.1f}, expected_single={expected_single_line:.1f}, ratio={text_height/expected_single_line:.2f}")
+
+                            # If height is significantly more than single line (1.3x), line wraps
+                            if text_height > expected_single_line * 1.3:
                                 # Line wraps - calculate font size needed
                                 calculated_font_size = self._calculate_font_size_for_single_line(
                                     line, available_width, self.flow_body_style
                                 )
-                                print(f"DEBUG: Line wraps, reducing block to {calculated_font_size}pt: '{clean_line[:50]}...'")
+                                print(f"DEBUG: Line wraps (ratio {text_height/expected_single_line:.2f}), reducing block to {calculated_font_size}pt: '{clean_line[:50]}...'")
                                 break  # Apply same font size to entire block
 
                         for i, line in enumerate(text_lines):
