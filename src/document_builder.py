@@ -797,7 +797,7 @@ class DocumentBuilder:
 
         return total_height, spacing_sum
 
-    def add_from_layout_json_flow(self, layout_data: Dict):
+    def add_from_layout_json_flow(self, layout_data: Dict, margin: float = None):
         """
         Build PDF from layout.json using flow-based rendering with dynamic spacing.
 
@@ -808,11 +808,12 @@ class DocumentBuilder:
         Features:
         - Titles: 12pt bold, centered, first line gets 0.4cm space before, last gets 0.4cm after
         - Multi-line titles: middle lines get 0.1cm spacing (tighter)
-        - Gap detection: blocks separated by >30px get 2.5cm spacer
-        - Discarded blocks: page numbers (bottom, right-aligned), footnotes (left-aligned)
+        - Gap detection: blocks separated by >30px get 0.4cm spacer
+        - Discarded blocks: page numbers (right-aligned), footnotes (left-aligned)
 
         Args:
             layout_data: Parsed layout.json content with pdf_info array
+            margin: Optional margin in points. If None, calculated from layout data.
         """
         pdf_info = layout_data.get("pdf_info", [])
         if not pdf_info:
@@ -824,38 +825,14 @@ class DocumentBuilder:
         self._dpi = self._calculate_dpi_from_page_size(first_page_size)
         print(f"DEBUG: Flow mode - Calculated DPI from page size {first_page_size}: {self._dpi:.1f}")
 
-        # Calculate margins from original PDF layout
-        # Find the leftmost and rightmost content across all pages to determine margins
-        page_width_px, page_height_px = first_page_size
+        # Calculate or use provided margin
+        if margin is None:
+            # Calculate margins from original PDF layout
+            margin = calculate_margins_from_layout(layout_data, self._dpi)
+        else:
+            print(f"DEBUG: Flow mode - Using provided margin: {margin:.1f}pt")
 
-        min_left = float('inf')
-        max_right = 0
-
-        for page_data in pdf_info:
-            preproc_blocks = page_data.get("preproc_blocks", [])
-            for block in preproc_blocks:
-                bbox = block.get("bbox", [0, 0, 100, 100])
-                # bbox is [x0, y0, x1, y1] where x0 is left, x1 is right
-                left = bbox[0]
-                right = bbox[2]
-                min_left = min(min_left, left)
-                max_right = max(max_right, right)
-
-        # Calculate margins in points (convert from pixels)
-        # left margin = min_left position
-        # right margin = page_width - max_right position
-        left_margin_pt = min_left / self._dpi * 72
-        right_margin_pt = (page_width_px - max_right) / self._dpi * 72
-
-        # Use the larger of the two margins for consistency
-        margin = max(left_margin_pt, right_margin_pt)
-
-        # Ensure minimum margin of 0.5cm and maximum of 2cm
-        margin = max(0.5 * cm, min(margin, 2 * cm))
-
-        print(f"DEBUG: Flow mode - Calculated margins: left={left_margin_pt:.1f}pt, right={right_margin_pt:.1f}pt, using={margin:.1f}pt")
-
-        # Page dimensions with calculated margins
+        # Page dimensions with calculated/provided margins
         page_width_pt, page_height_pt = A4
         available_width = page_width_pt - (2 * margin)
         available_height = page_height_pt - (2 * margin)
@@ -1645,11 +1622,63 @@ def create_pdf_from_layout(
     return output_path
 
 
+def calculate_margins_from_layout(layout_data: Dict, dpi: float) -> float:
+    """
+    Calculate document margins from layout.json bbox data.
+
+    Finds the leftmost and rightmost content across all pages to determine
+    the original PDF's margins.
+
+    Args:
+        layout_data: Parsed layout.json content with pdf_info array
+        dpi: DPI for pixel-to-point conversion
+
+    Returns:
+        Margin in points (clamped between 0.5cm and 2cm)
+    """
+    from reportlab.lib.units import cm
+
+    pdf_info = layout_data.get("pdf_info", [])
+    if not pdf_info:
+        return 0.5 * cm  # Default fallback
+
+    first_page_size = pdf_info[0].get("page_size", [612, 792])
+    page_width_px, _ = first_page_size
+
+    min_left = float('inf')
+    max_right = 0
+
+    for page_data in pdf_info:
+        preproc_blocks = page_data.get("preproc_blocks", [])
+        for block in preproc_blocks:
+            bbox = block.get("bbox", [0, 0, 100, 100])
+            # bbox is [x0, y0, x1, y1] where x0 is left, x1 is right
+            left = bbox[0]
+            right = bbox[2]
+            min_left = min(min_left, left)
+            max_right = max(max_right, right)
+
+    # Calculate margins in points (convert from pixels)
+    left_margin_pt = min_left / dpi * 72
+    right_margin_pt = (page_width_px - max_right) / dpi * 72
+
+    # Use the larger of the two margins for consistency
+    margin = max(left_margin_pt, right_margin_pt)
+
+    # Ensure minimum margin of 0.5cm and maximum of 2cm
+    margin = max(0.5 * cm, min(margin, 2 * cm))
+
+    print(f"DEBUG: Calculated margins from layout: left={left_margin_pt:.1f}pt, right={right_margin_pt:.1f}pt, using={margin:.1f}pt")
+
+    return margin
+
+
 def create_pdf_from_layout_flow(
     output_path: str,
     layout_data: Dict,
     temp_dir: str = None,
-    font_buckets: dict = None
+    font_buckets: dict = None,
+    margin: float = None
 ) -> str:
     """
     Create PDF from MinerU layout.json using flow-based rendering with dynamic spacing.
@@ -1658,9 +1687,9 @@ def create_pdf_from_layout_flow(
     canvas positioning. Spacing is dynamically adjusted to fit content on each page.
 
     Styling:
-    - Titles: 14pt bold, centered, larger spacing after
+    - Titles: 12pt bold, centered, larger spacing after
     - Body text: 10.5pt, narrower line spacing (12pt leading = 1.14x)
-    - Discarded: 8pt, centered (page numbers, footnotes)
+    - Discarded: Page numbers (right-aligned), footnotes (left-aligned)
     - Images: Fixed size (not scaled)
 
     Args:
@@ -1668,11 +1697,12 @@ def create_pdf_from_layout_flow(
         layout_data: Parsed layout.json content with pdf_info array
         temp_dir: Temporary directory containing extracted images
         font_buckets: Optional dict with custom bbox height thresholds (not used in flow mode)
+        margin: Optional margin in points. If None, calculated from layout data.
 
     Returns:
         Path to created document
     """
     builder = DocumentBuilder(output_path, temp_dir=temp_dir, font_buckets=font_buckets)
-    builder.add_from_layout_json_flow(layout_data)
+    builder.add_from_layout_json_flow(layout_data, margin=margin)
     builder.finalize()
     return output_path

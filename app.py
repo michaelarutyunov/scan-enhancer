@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.mineru_processor import MinerUAPIProcessor
-from src.document_builder import create_pdf_from_mineru, create_pdf_from_layout, create_pdf_from_layout_flow
+from src.document_builder import create_pdf_from_mineru, create_pdf_from_layout, create_pdf_from_layout_flow, calculate_margins_from_layout
 from src.utils import validate_pdf_path, check_file_size_limit, clean_filename
 from src.pdf_preprocessor import preprocess_pdf, is_available, fix_overlapping_blocks
 
@@ -270,11 +270,25 @@ def process_pdf(
                     )
                 else:
                     # Use layout.json with flow-based rendering and dynamic spacing
-                    print("DEBUG: Using layout.json for flow-based rendering (14pt titles, 10.5pt body, dynamic spacing)")
+                    print("DEBUG: Using layout.json for flow-based rendering with original margins")
+
+                    # Calculate DPI from page size for margin calculation
+                    from reportlab.lib.pagesizes import A4
+                    pdf_info = layout_data.get("pdf_info", [])
+                    if pdf_info:
+                        first_page_size = pdf_info[0].get("page_size", [612, 792])
+                        # Calculate DPI: A4 width in points / page width in pixels
+                        dpi = A4[0] / first_page_size[0] * 72
+                        # Calculate margins from layout
+                        calculated_margin = calculate_margins_from_layout(layout_data, dpi)
+                    else:
+                        calculated_margin = None
+
                     create_pdf_from_layout_flow(
                         output_path=output_path,
                         layout_data=layout_data,
                         temp_dir=temp_dir,
+                        margin=calculated_margin,
                     )
             else:
                 # Fallback to content_list.json for flow-based rendering
@@ -399,10 +413,23 @@ def apply_corrections_and_generate_pdf(
             )
         else:
             # Use flow-based rendering with dynamic spacing
+            # Calculate margins from layout
+            from reportlab.lib.pagesizes import A4
+            pdf_info = layout_data.get("pdf_info", [])
+            if pdf_info:
+                first_page_size = pdf_info[0].get("page_size", [612, 792])
+                # Calculate DPI: A4 width in points / page width in pixels
+                dpi = A4[0] / first_page_size[0] * 72
+                # Calculate margins from layout
+                calculated_margin = calculate_margins_from_layout(layout_data, dpi)
+            else:
+                calculated_margin = None
+
             create_pdf_from_layout_flow(
                 output_path=output_pdf,
                 layout_data=layout_data,
                 temp_dir=temp_dir,
+                margin=calculated_margin,
             )
 
         final_status = f"{status_msg}\n✅ Final PDF generated successfully!"
