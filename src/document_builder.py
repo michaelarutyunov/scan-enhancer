@@ -854,14 +854,19 @@ class DocumentBuilder:
                 bbox = block.get("bbox", [0, 0, 100, 100])
                 block_top = bbox[1]
 
-                # Check for gap between blocks (but NOT before titles, as they have their own spacing)
-                if last_block_bottom is not None and block_type != 'title':
+                # Check for gap between blocks
+                if last_block_bottom is not None:
                     gap = block_top - last_block_bottom
                     if gap > GAP_THRESHOLD_PX:
-                        # Insert gap spacer (using dict format like other items)
+                        # Use different spacer sizes: 0.4cm before titles, 2.5cm for other gaps
+                        if block_type == 'title':
+                            spacer_size = 0.4 * cm  # Same as title's space after
+                        else:
+                            spacer_size = LARGE_SPACER  # 2.5cm for content gaps
+
                         pages[page_idx].append({
                             'type': 'spacer',
-                            'content': LARGE_SPACER,
+                            'content': spacer_size,
                             'spacing': 0,
                             'is_first_in_group': False,
                             'is_last_in_group': False
