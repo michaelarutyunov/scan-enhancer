@@ -218,11 +218,21 @@ The single-file endpoint only accepts URLs, not file uploads. Therefore, a two-s
 - `DocumentBuilder`: Main PDF building class with DPI-aware coordinate conversion
 
 **Rendering Methods:**
-1. **Layout-based rendering** (`add_from_layout_json`): Primary method using canvas-based absolute positioning
-2. **Flow-based rendering** (`add_from_mineru_json`): Fallback using ReportLab flowables
+1. **Layout-based rendering** (`add_from_layout_json`): Primary method using canvas-based absolute positioning with exact layout preservation
+2. **Flow-based rendering** (`add_from_layout_json_flow`): Alternative using ReportLab flowables (Paragraph, Spacer) with dynamic spacing adjustment
 
 **Critical Functions:**
 - `add_from_layout_json()`: Canvas-based rendering with exact positioning
+- `add_from_layout_json_flow()`: Flow-based rendering with dynamic spacing and custom styling
+  - Titles: 12pt bold, centered, 0.4cm spacing before/after
+  - Body text: 10.5pt, 12pt leading (1.14x), justified
+  - Page numbers: 8pt, right-aligned
+  - Footnotes: 8pt, left-aligned
+  - Dynamic spacing: Automatically reduces spacing to fit content on each page
+  - Gap detection: Adds 0.4cm spacer for gaps >30px between blocks
+- `finalize()`: Creates SimpleDocTemplate and builds the document
+  - Uses `self._flow_margin` if set by flow mode, otherwise uses 1cm or 2cm defaults
+  - This ensures content wrapping matches PDF page margins
 - `_calculate_dpi_from_page_size()`: Detect scan DPI by comparing to paper sizes
 - `_convert_bbox()`: Convert pixels to points for all coordinates
 - `_render_text_block()`: Map bbox heights to appropriate font sizes
@@ -255,6 +265,60 @@ else: font_size = 14pt
 - DejaVu Sans (bundled) → System fonts → Helvetica (last resort)
 - Helvetica does NOT support Cyrillic characters
 - Font registration happens per-document to ensure availability
+
+**Flow-Based Rendering Architecture:**
+
+Flow mode provides an alternative to canvas-based exact positioning, using ReportLab's flowable system:
+
+```python
+# Content organization
+content_items = [
+    {'type': 'title', 'content': 'Chapter 1', 'spacing': 0.4*cm, ...},
+    {'type': 'text', 'content': 'Body text...', 'spacing': 0.1*cm, ...},
+    {'type': 'spacer', 'content': 0.4*cm, ...},  # For gap detection
+    {'type': 'image', 'content': (path, width, height), ...},
+]
+
+# Dynamic spacing calculation
+total_height = calculate_content_height(content_items, available_width, available_height)
+if total_height > available_height:
+    multiplier = available_height / total_height  # Reduce spacing
+    multiplier = max(multiplier, 0.4)  # Minimum 40% reduction
+
+# Render with adjusted spacing
+for item in content_items:
+    style = ParagraphStyle(..., spaceAfter=item['spacing'] * multiplier)
+    story.append(Paragraph(item['content'], style))
+```
+
+**Margin Calculation and Usage:**
+
+A critical bug was fixed where flow mode calculated content width using one margin, but `finalize()` used a different margin:
+
+```python
+# BEFORE (bug):
+# In add_from_layout_json_flow():
+available_width = page_width_pt - (2 * margin)  # margin = 32.2pt
+# Paragraphs wrapped to: 595.27 - 64.4 = 530.87pt
+
+# In finalize():
+margin = 2 * cm  # 56.7pt, NOT the 32.2pt!
+doc = SimpleDocTemplate(..., rightMargin=margin, leftMargin=margin, ...)
+# PDF content area: 595.27 - 113.4 = 481.87pt
+# Result: 530.87pt paragraphs don't fit in 481.87pt → overflow!
+
+# AFTER (fixed):
+# In add_from_layout_json_flow():
+self._flow_margin = margin  # Store for finalize() to use
+
+# In finalize():
+if hasattr(self, '_flow_margin'):
+    margin = self._flow_margin  # Use same margin as content wrapping
+else:
+    margin = 1 * cm if self.use_consistent_margins else 2 * cm
+```
+
+This ensures paragraphs are wrapped for the same width as the PDF page content area.
 
 ---
 

@@ -19,8 +19,10 @@ A HuggingFace Spaces application that processes scanned PDF documents using **Mi
 - **Multi-Language OCR**: Supports 109 languages including Russian, powered by MinerU
 - **Structure Preservation**: Extracts and preserves headings, paragraphs, lists, tables, and images
 - **Binarization Preprocessing**: Enabled by default for improved OCR accuracy on noisy scans
+- **Line Calibration**: Optional feature to fix overlapping text by adjusting line heights (opt-in)
 - **OCR Manual Correction**: Review and fix low-confidence text before generating PDF
 - **Smart Font Sizing**: DPI-aware coordinate conversion for properly sized fonts
+- **Flow-Based Mode**: Alternative rendering mode with custom styling and dynamic spacing
 - **PDF Output**: Generates clean, searchable PDFs with predictable filenames
 - **Cloud Processing**: Uses MinerU cloud API - no local ML models needed
 
@@ -79,13 +81,16 @@ Scanned PDFs often have:
 - ❌ No selectable/searchable text
 - ❌ Visual noise (speckles, dots)
 - ❌ Inconsistent or tiny fonts
+- ❌ Overlapping text (tight line spacing)
 - ❌ Poor OCR accuracy
 
 This tool produces:
 - ✅ Fully searchable text
 - ✅ Clean, noise-free documents
 - ✅ Properly sized fonts (DPI-aware)
+- ✅ Fixed overlapping text (with line calibration)
 - ✅ High OCR accuracy
+- ✅ Flow-based mode option for custom styling
 
 ## Usage
 
@@ -94,11 +99,12 @@ This tool produces:
 1. Upload a scanned PDF document (max 200 MB, 600 pages)
 2. **Optional**: Adjust "Pre-process PDF" settings for noisy scans
 3. Select document language (Russian, English, Chinese, etc.) for better OCR accuracy
-4. **Optional**: Enable "Line Calibration" if text appears overlapping in output
-5. **Optional**: Adjust font size buckets if automatic sizing needs tuning
-6. Click "🔍 Process the document"
-7. **If low-confidence items found**: Review and correct in the table, then click "✅ Apply Corrections"
-8. Download the cleaned PDF
+4. **Optional**: Uncheck "Keep original page margins" for flow-based mode with custom styling
+5. **Optional**: Enable "Line Calibration" if text appears overlapping in output
+6. **Optional**: Adjust font size buckets if automatic sizing needs tuning
+7. Click "🔍 Process the document"
+8. **If low-confidence items found**: Review and correct in the table, then click "✅ Apply Corrections"
+9. Download the cleaned PDF
 
 ### Advanced Settings
 
@@ -158,6 +164,32 @@ Enable this to fix overlapping text by reducing line heights in blocks with exce
 4. Result: Smaller fonts that don't overlap
 
 **Note:** This feature is opt-in (disabled by default) to preserve original fonts for documents without overlap issues.
+
+#### Flow-Based Rendering Mode (Uncheck "Keep original page margins")
+
+When unchecked, switches from exact layout positioning to flow-based rendering with custom styling.
+
+**When to use:**
+- You want more readable, reformatted documents
+- You don't need to preserve the exact original layout
+- You prefer consistent styling over exact positioning
+
+**Styling in flow mode:**
+- **Titles**: 12pt bold, centered, 0.4cm spacing before/after
+- **Body text**: 10.5pt, 12pt leading (1.14x), justified alignment
+- **Page numbers**: 8pt, right-aligned
+- **Footnotes**: 8pt, left-aligned
+- **Gap detection**: Automatically adds 0.4cm spacer for gaps >30px between blocks
+- **Dynamic spacing**: Reduces spacing (to 40% minimum) to fit content on each page
+
+**How it works:**
+1. Uncheck "Keep original page margins"
+2. Content is organized into flowable items (titles, text, images, spacers)
+3. Calculates total height and adjusts spacing multiplier if needed
+4. Renders with ReportLab's Paragraph and Spacer flowables
+5. Result: Clean, readable document with consistent styling
+
+**Note:** Flow mode uses margins calculated from the original PDF layout to ensure text that fit on single lines in the original also fits in the output.
 
 #### Font Size Buckets
 
