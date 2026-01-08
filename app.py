@@ -18,7 +18,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.mineru_processor import MinerUAPIProcessor
-from src.document_builder import create_pdf_from_mineru, create_pdf_from_layout, create_pdf_from_layout_flow, calculate_margins_from_layout
+from src.document_builder import (
+    DocumentBuilder,
+    create_pdf_from_mineru,
+    create_pdf_from_layout,
+    create_pdf_from_layout_flow,
+    calculate_margins_from_layout,
+)
 from src.utils import validate_pdf_path, check_file_size_limit, clean_filename
 from src.pdf_preprocessor import preprocess_pdf, is_available, fix_overlapping_blocks
 
