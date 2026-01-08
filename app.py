@@ -49,7 +49,7 @@ def process_pdf(
     font_bucket_14: float,
     enable_ocr_correction: bool,
     quality_cutoff: float,
-    target_font_for_overlap: int,
+    target_line_height: float,
     overlap_threshold: float,
     progress=gr.Progress()
 ) -> tuple:
@@ -70,8 +70,8 @@ def process_pdf(
         font_bucket_11: Line height threshold in points for 11pt font (default 21.0)
         font_bucket_12: Line height threshold in points for 12pt font (default 25.0)
         font_bucket_14: Line height threshold in points for 14pt font (default 27.0)
-        target_font_for_overlap: Target font size for overlapping blocks in points (default 9)
-        overlap_threshold: Maximum negative gap in pixels to ignore for overlap fixing (default -10.0)
+        target_line_height: Maximum line height in pixels before overlap fixing is triggered (default 34.0)
+        overlap_threshold: Optional maximum negative gap to ignore for overlap fixing (default -10.0)
         progress: Gradio progress tracker
 
     Returns:
@@ -191,7 +191,7 @@ def process_pdf(
                         "pdf_path": pdf_path,
                         "original_base_name": original_base_name,  # Store original filename for final output
                         "keep_original_margins": keep_original_margins,
-                        "target_font_for_overlap": target_font_for_overlap,
+                        "target_line_height": target_line_height,
                         "overlap_threshold": overlap_threshold,
                         "font_buckets": {
                             "bucket_9": font_bucket_9,
@@ -246,7 +246,7 @@ def process_pdf(
             # Choose rendering method based on margin preference
             if layout_data:
                 # Fix any overlapping text blocks before rendering
-                layout_data = fix_overlapping_blocks(layout_data, overlap_threshold=overlap_threshold, target_font=target_font_for_overlap)
+                layout_data = fix_overlapping_blocks(layout_data, target_line_height=target_line_height, overlap_threshold=overlap_threshold)
 
                 # Use layout.json for exact positioning
                 # Apply consistent margins if user requested them
@@ -332,7 +332,7 @@ def apply_corrections_and_generate_pdf(
     Args:
         corrections_df: Edited DataFrame from corrections_table
         state_data: Dict with keys: processor, temp_dir, pdf_path,
-                    keep_original_margins, target_font_for_overlap, overlap_threshold, font_buckets
+                    keep_original_margins, target_line_height, overlap_threshold, font_buckets
 
     Returns:
         Tuple of (final_pdf_path, status_message)
@@ -345,7 +345,7 @@ def apply_corrections_and_generate_pdf(
         temp_dir = state_data.get("temp_dir")
         pdf_path = state_data.get("pdf_path")
         keep_original_margins = state_data.get("keep_original_margins", True)
-        target_font_for_overlap = state_data.get("target_font_for_overlap", 9)
+        target_line_height = state_data.get("target_line_height", 34.0)
         overlap_threshold = state_data.get("overlap_threshold", -10.0)
         font_buckets = state_data.get("font_buckets", {})
 
@@ -369,7 +369,7 @@ def apply_corrections_and_generate_pdf(
         layout_data = processor.load_layout()
 
         # Fix any overlapping text blocks before rendering
-        layout_data = fix_overlapping_blocks(layout_data, overlap_threshold=overlap_threshold, target_font=target_font_for_overlap)
+        layout_data = fix_overlapping_blocks(layout_data, target_line_height=target_line_height, overlap_threshold=overlap_threshold)
 
         # Generate PDF from corrected layout with proper filename using original base name
         from datetime import datetime
@@ -487,13 +487,13 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 interactive=True
             )
 
-            target_font_for_overlap = gr.Slider(
-                minimum=8,
-                maximum=14,
-                value=9,
-                step=1,
-                label="Target Font for Overlap Fix",
-                info="Font size (pt) to use for overlapping text blocks. Smaller = less likely to overlap. Default: 9pt"
+            target_line_height = gr.Slider(
+                minimum=0.0,
+                maximum=50.0,
+                value=34.0,
+                step=0.5,
+                label="Target Line Height",
+                info="Maximum line height (px) before overlap fixing is triggered. Blocks taller than this will be reduced. Default: 34.0"
             )
 
             overlap_threshold = gr.Slider(
@@ -652,7 +652,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
         inputs=[pdf_input, language, download_raw, keep_original_margins, binarize_enabled,
                 binarize_block_size, binarize_c_constant, enable_formula,
                 font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14,
-                enable_ocr_correction, quality_cutoff, target_font_for_overlap, overlap_threshold],
+                enable_ocr_correction, quality_cutoff, target_line_height, overlap_threshold],
         outputs=[
             output_file,           # Final PDF (None if corrections needed)
             binarized_file,        # Binarized PDF

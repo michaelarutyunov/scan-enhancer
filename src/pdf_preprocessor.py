@@ -213,71 +213,30 @@ def get_missing_dependencies() -> list:
     return missing
 
 
-def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overlap_threshold: int = -10, target_font: int = 9) -> dict:
+def fix_overlapping_blocks(layout_data: dict, target_line_height: int = 34, overlap_threshold: int = -10) -> dict:
     """
-    Fix text overlap by reducing bbox heights to trigger smaller fonts.
+    Fix text overlap by reducing bbox heights to a target line height.
 
-    Analyzes layout.json for blocks with overlapping lines (negative gaps between
-    consecutive line bboxes) and reduces bbox heights to map to a smaller font
-    size, which reduces leading and prevents visual overlap.
+    Analyzes layout.json for blocks where the median line height exceeds target_line_height
+    and reduces bbox heights to match the target, which triggers smaller fonts and reduces
+    leading to prevent visual overlap.
 
-    Only fixes blocks where the maximum overlap exceeds overlap_threshold (default -10px).
-    This avoids changing font sizes for minor overlaps that don't cause visual issues.
+    Only fixes blocks where:
+    1. current median height > target_line_height, AND
+    2. (optional) max_overlap < overlap_threshold
 
     Args:
         layout_data: Parsed layout.json with pdf_info array from MinerU
-        fixed_line_height: The FIXED_LINE_HEIGHT used in document_builder (default 14pt)
-        overlap_threshold: Maximum negative gap to ignore (default -10px).
-                          Only blocks with gap < overlap_threshold will be fixed.
-                          Set to 0 to fix all overlaps, or -5/-15 for more/less aggressive fixing.
-        target_font: Target font size for overlapping blocks (default 9pt).
-                    Must be one of: 8, 9, 10, 11, 12, 13, 14.
-                    Smaller values = more aggressive (smaller font, less likely to overlap).
-                    Larger values = less aggressive (larger font, may still overlap).
+        target_line_height: Maximum line height in pixels before fixing is triggered (default 34px).
+                           Blocks with median height > this value will be reduced to this height.
+                           Lower = more aggressive (fix more blocks), Higher = more conservative.
+        overlap_threshold: Optional maximum negative gap to ignore (default -10px).
+                          Only applies if you want BOTH conditions to be met.
+                          Set to 0 to disable this filter and only use target_line_height.
 
     Returns:
         Modified layout_data with adjusted bbox heights for overlapping blocks
-
-    Note:
-        Font bucket thresholds must match document_builder.py:
-        < 18pt → 8pt, < 17pt → 9pt, < 22pt → 10pt, < 28pt → 11pt,
-        < 30pt → 12pt, < 32pt → 13pt, >= 32pt → 14pt
     """
-    # Font bucket thresholds (must match document_builder.py)
-    FONT_BUCKETS = [
-        (8, 18),   # < 18pt → 8pt
-        (9, 17),   # < 17pt → 9pt
-        (10, 22),  # < 22pt → 10pt
-        (11, 28),  # < 28pt → 11pt
-        (12, 30),  # < 30pt → 12pt
-        (13, 32),  # < 32pt → 13pt
-        (14, 999), # >= 32pt → 14pt
-    ]
-
-    # Validate target_font
-    valid_fonts = [f for f, _ in FONT_BUCKETS]
-    if target_font not in valid_fonts:
-        print(f"Warning: Invalid target_font {target_font}, must be one of {valid_fonts}. Using default 9.")
-        target_font = 9
-
-    # Find the threshold for the target font
-    target_threshold = None
-    for font, threshold in FONT_BUCKETS:
-        if font == target_font:
-            target_threshold = threshold
-            break
-
-    if target_threshold is None:
-        return layout_data
-
-    # Convert target threshold from points to pixels
-    # Assuming ~72 DPI for typical scanned documents (1pt ≈ 0.47px)
-    # This matches the conversion in document_builder.py
-    target_threshold_px = target_threshold / 0.47
-
-    # Add 1pt safety margin (in pixels)
-    target_median_px = (target_threshold - 1.0) / 0.47
-
     blocks_fixed = 0
 
     for page in layout_data.get('pdf_info', []):
@@ -286,31 +245,30 @@ def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overl
             if len(lines) < 2:
                 continue
 
-            # Step 1: Detect SEVERE overlap (negative gaps exceeding threshold)
-            # Only fix blocks where overlap < overlap_threshold (default -10px)
-            # This avoids changing fonts for minor overlaps that don't cause visual issues
-            has_severe_overlap = False
-            max_overlap = 0
-
-            for i in range(1, len(lines)):
-                gap = lines[i]['bbox'][1] - lines[i-1]['bbox'][3]
-                if gap < max_overlap:
-                    max_overlap = gap
-
-            # Only fix if the worst overlap exceeds our threshold
-            if max_overlap >= overlap_threshold:
-                continue
-
-            # Step 2: Get median bbox height
+            # Step 1: Get median bbox height
             heights = [l['bbox'][3] - l['bbox'][1] for l in lines]
             median_px = sorted(heights)[len(heights) // 2]
 
-            # Step 3: Calculate reduction factor
-            # Only reduce if current median is larger than target
-            if median_px <= target_median_px:
+            # Step 2: Check if this block needs fixing
+            # Primary filter: is median height over target?
+            if median_px <= target_line_height:
                 continue
 
-            reduction_factor = target_median_px / median_px
+            # Secondary filter (optional): check overlap severity
+            # Only applies if overlap_threshold < 0 (non-zero means we want this filter)
+            if overlap_threshold < 0:
+                max_overlap = 0
+                for i in range(1, len(lines)):
+                    gap = lines[i]['bbox'][1] - lines[i-1]['bbox'][3]
+                    if gap < max_overlap:
+                        max_overlap = gap
+
+                # Skip if overlap isn't severe enough
+                if max_overlap >= overlap_threshold:
+                    continue
+
+            # Step 3: Calculate reduction factor
+            reduction_factor = target_line_height / median_px
 
             # Step 4: Apply reduction (keep y1, reduce y2)
             for line in lines:
@@ -327,6 +285,6 @@ def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overl
 
             blocks_fixed += 1
 
-    print(f"fix_overlapping_blocks: Fixed {blocks_fixed} blocks with severe overlaps (gap < {overlap_threshold}px) → target font: {target_font}pt")
+    print(f"fix_overlapping_blocks: Fixed {blocks_fixed} blocks with line height > {target_line_height}px")
 
     return layout_data
