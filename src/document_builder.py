@@ -926,15 +926,24 @@ class DocumentBuilder:
                                 'is_last_in_group': is_last
                             })
                     else:
-                        # Regular text - check if block needs font reduction to fit on one line
+                        # Regular text - check if ANY line in block wraps when rendered
                         calculated_font_size = None
-                        if len(text_lines) > 1:
-                            # Multi-line block - join all lines and check if they wrap
-                            full_text = ' '.join(text_lines)
-                            calculated_font_size = self._calculate_font_size_for_single_line(
-                                full_text, available_width, self.flow_body_style
-                            )
-                            print(f"DEBUG: Multi-line block ({len(text_lines)} lines) reduced to {calculated_font_size}pt to fit on one line: '{full_text[:50]}...'")
+
+                        # Check each line individually to see if it wraps
+                        for line in text_lines:
+                            clean_line = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                            temp_para = Paragraph(clean_line, self.flow_body_style)
+                            text_width, text_height = temp_para.wrap(available_width, 1000)
+
+                            # If height is significantly more than single line height, line wraps
+                            single_line_threshold = self.flow_body_style.fontSize * 1.3
+                            if text_height > single_line_threshold * 1.5:
+                                # Line wraps - calculate font size needed
+                                calculated_font_size = self._calculate_font_size_for_single_line(
+                                    line, available_width, self.flow_body_style
+                                )
+                                print(f"DEBUG: Line wraps, reducing block to {calculated_font_size}pt: '{clean_line[:50]}...'")
+                                break  # Apply same font size to entire block
 
                         for i, line in enumerate(text_lines):
                             pages[page_idx].append({
@@ -943,7 +952,7 @@ class DocumentBuilder:
                                 'spacing': 0.1 * cm,
                                 'is_first_in_group': False,
                                 'is_last_in_group': False,
-                                'font_size': calculated_font_size  # Will be None for single-line blocks
+                                'font_size': calculated_font_size  # Will be None for blocks with no wrapping lines
                             })
 
                     # Update last block position
@@ -1165,7 +1174,7 @@ class DocumentBuilder:
         text: str,
         available_width: float,
         base_style: ParagraphStyle,
-        min_font_size: float = 6.0
+        min_font_size: float = 8.0
     ) -> float:
         """
         Calculate the font size needed to fit text on a single line.
@@ -1174,7 +1183,7 @@ class DocumentBuilder:
             text: The text to fit
             available_width: Available width in points
             base_style: Base ParagraphStyle to use
-            min_font_size: Minimum font size to try (default 6pt)
+            min_font_size: Minimum font size to try (default 8pt)
 
         Returns:
             Font size that fits the text on one line, or min_font_size if not possible
@@ -1182,6 +1191,7 @@ class DocumentBuilder:
         # Start with base font size and reduce until text fits on one line
         font_size = base_style.fontSize
         clean_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        original_font_size = font_size
 
         while font_size > min_font_size:
             # Create style with current font size
@@ -1200,8 +1210,8 @@ class DocumentBuilder:
             if text_height <= expected_single_line_height:
                 return font_size
 
-            # Reduce font size and try again
-            font_size -= 0.5
+            # Reduce font size and try again (smaller increments for finer control)
+            font_size -= 0.25
 
         return min_font_size
 
