@@ -213,7 +213,7 @@ def get_missing_dependencies() -> list:
     return missing
 
 
-def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14) -> dict:
+def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14, overlap_threshold: int = -10) -> dict:
     """
     Fix text overlap by reducing bbox heights to trigger smaller fonts.
 
@@ -221,9 +221,15 @@ def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14) -> di
     consecutive line bboxes) and reduces bbox heights to map to a smaller font
     size, which reduces leading and prevents visual overlap.
 
+    Only fixes blocks where the maximum overlap exceeds overlap_threshold (default -10px).
+    This avoids changing font sizes for minor overlaps that don't cause visual issues.
+
     Args:
         layout_data: Parsed layout.json with pdf_info array from MinerU
         fixed_line_height: The FIXED_LINE_HEIGHT used in document_builder (default 14pt)
+        overlap_threshold: Maximum negative gap to ignore (default -10px).
+                          Only blocks with gap < overlap_threshold will be fixed.
+                          Set to 0 to fix all overlaps, or -5/-15 for more/less aggressive fixing.
 
     Returns:
         Modified layout_data with adjusted bbox heights for overlapping blocks
@@ -281,15 +287,19 @@ def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14) -> di
             if len(lines) < 2:
                 continue
 
-            # Step 1: Detect overlap (negative gaps between consecutive lines)
-            has_overlap = False
+            # Step 1: Detect SEVERE overlap (negative gaps exceeding threshold)
+            # Only fix blocks where overlap < overlap_threshold (default -10px)
+            # This avoids changing fonts for minor overlaps that don't cause visual issues
+            has_severe_overlap = False
+            max_overlap = 0
+
             for i in range(1, len(lines)):
                 gap = lines[i]['bbox'][1] - lines[i-1]['bbox'][3]
-                if gap < 0:
-                    has_overlap = True
-                    break
+                if gap < max_overlap:
+                    max_overlap = gap
 
-            if not has_overlap:
+            # Only fix if the worst overlap exceeds our threshold
+            if max_overlap >= overlap_threshold:
                 continue
 
             # Step 2: Get median bbox height
@@ -318,6 +328,6 @@ def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14) -> di
 
             blocks_fixed += 1
 
-    print(f"fix_overlapping_blocks: Fixed {blocks_fixed} blocks with overlapping lines")
+    print(f"fix_overlapping_blocks: Fixed {blocks_fixed} blocks with severe overlaps (gap < {overlap_threshold}px)")
 
     return layout_data
