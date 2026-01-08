@@ -21,7 +21,7 @@ import tempfile
 class DocumentBuilder:
     """Build PDF document from MinerU structured output."""
 
-    def __init__(self, output_path: str, temp_dir: str = None, use_consistent_margins: bool = False, font_buckets: dict = None):
+    def __init__(self, output_path: str, temp_dir: str = None, use_consistent_margins: bool = False, font_buckets: dict = None, enable_footnote_detection: bool = False):
         """
         Initialize document builder.
 
@@ -31,10 +31,12 @@ class DocumentBuilder:
             use_consistent_margins: If True, use 1cm margins; otherwise use 2cm default
             font_buckets: Optional dict with custom bbox height thresholds for font sizing
                          Keys: "bucket_9", "bucket_10", "bucket_11", "bucket_12", "bucket_14"
+            enable_footnote_detection: If True, detect footnotes by position and content pattern
         """
         self.output_path = output_path
         self.temp_dir = temp_dir
         self.use_consistent_margins = use_consistent_margins
+        self.enable_footnote_detection = enable_footnote_detection
         self.story = []
         self.styles = getSampleStyleSheet()
         self.temp_files = []
@@ -436,7 +438,7 @@ class DocumentBuilder:
             self._render_image_block(block, x, y, width, height)
         else:
             # Text, title, or discarded - pass page_height for line positioning
-            self._render_text_block(block, x, y, width, height, block_type, is_discarded, page_height)
+            self._render_text_block(block, x, y, width, height, block_type, is_discarded, page_height, original_page_height_px)
 
     def _calculate_dpi_from_page_size(self, page_size: List[float]) -> float:
         """
@@ -542,8 +544,48 @@ class DocumentBuilder:
         else:
             return 14
 
+    def _is_footnote_block(self, block: Dict, page_height: float) -> bool:
+        """
+        Detect if block is a footnote based on position and content pattern.
+
+        Requires BOTH:
+        - Position in bottom 20% of page
+        - First line starts with number + space + letter (e.g., "1 Литературовед")
+
+        Args:
+            block: Block data with bbox and lines
+            page_height: Page height in pixels
+
+        Returns:
+            True if block appears to be a footnote
+        """
+        import re
+
+        bbox = block.get("bbox", [0, 0, 0, 0])
+        y_top = bbox[1]
+
+        # Signal 1: Position - bottom 20% of page
+        is_at_bottom = y_top > page_height * 0.80
+        if not is_at_bottom:
+            return False
+
+        # Signal 2: Content pattern - starts with number + space + letter
+        # Footnotes: "1 Литературовед" (digit + space + letter)
+        # vs Lists: "1. Расскажите" (digit + period + space)
+        first_line_content = ""
+        lines = block.get("lines", [])
+        if lines:
+            spans = lines[0].get("spans", [])
+            if spans:
+                first_line_content = spans[0].get("content", "")
+
+        has_footnote_pattern = bool(re.match(r'^\d+\s+[A-ZА-Яa-zа-я]', first_line_content))
+
+        # Require BOTH signals to reduce false positives
+        return has_footnote_pattern
+
     def _render_text_block(self, block: Dict, x: float, y: float, width: float, height: float,
-                           block_type: str, is_discarded: bool, page_height: float):
+                           block_type: str, is_discarded: bool, page_height: float, original_page_height_px: float = None):
         """
         Render a text block at exact position, preserving line breaks and original spacing.
 
@@ -558,7 +600,8 @@ class DocumentBuilder:
             x, y, width, height: Position and size in ReportLab coordinates
             block_type: "text", "title", or "discarded"
             is_discarded: Whether this is a discarded block
-            page_height: Height of the page for coordinate conversion
+            page_height: Height of the page for coordinate conversion (in points)
+            original_page_height_px: Original page height in pixels (for footnote detection)
         """
         # Extract text lines preserving structure
         text_lines = self._extract_text_lines_from_block(block)
@@ -582,12 +625,16 @@ class DocumentBuilder:
         # Step 2 & 3: Determine font size using universal buckets
         # TITLES: Always use 12pt regardless of bbox height
         # DISCARDED: Always use 8pt (page numbers, footnotes)
+        # FOOTNOTES: Use 8pt if detected (position + content pattern)
         # TEXT: Use bucket thresholds based on median line height
         if block_type == "title":
             # Force titles to 12pt font for consistency
             font_size = 12
         elif block_type == "discarded":
-            # Page numbers, footnotes always 8pt
+            # Page numbers, footnotes already marked as discarded → 8pt
+            font_size = 8
+        elif self.enable_footnote_detection and original_page_height_px and self._is_footnote_block(block, original_page_height_px):
+            # Detected footnote (not marked as discarded by MinerU) → 8pt
             font_size = 8
         elif bbox_heights:
             # Use median (middle value) instead of mode
@@ -920,6 +967,11 @@ class DocumentBuilder:
                     last_block_bottom = bbox[3]
 
                 elif text_lines:
+                    # Check for footnote detection
+                    is_footnote = False
+                    if self.enable_footnote_detection and block_type == "text":
+                        is_footnote = self._is_footnote_block(block, page_height_px)
+
                     # For titles, we need to track first/last line for proper spacing
                     if block_type == "title":
                         # First title line gets special treatment (space before)
@@ -934,6 +986,16 @@ class DocumentBuilder:
                                 'spacing': spacing,
                                 'is_first_in_group': is_first,
                                 'is_last_in_group': is_last
+                            })
+                    elif is_footnote:
+                        # Detected footnote - treat like discarded block (8pt font)
+                        for line in text_lines:
+                            pages[page_idx].append({
+                                'type': 'footnote',
+                                'content': line,
+                                'spacing': 0,
+                                'is_first_in_group': False,
+                                'is_last_in_group': False,
                             })
                     else:
                         # Regular text - add each line as a separate paragraph
@@ -1491,7 +1553,8 @@ def create_pdf_from_layout(
     layout_data: Dict,
     temp_dir: str = None,
     use_consistent_margins: bool = False,
-    font_buckets: dict = None
+    font_buckets: dict = None,
+    enable_footnote_detection: bool = False
 ) -> str:
     """
     Create PDF from MinerU layout.json with exact positioning.
@@ -1506,11 +1569,12 @@ def create_pdf_from_layout(
         use_consistent_margins: If True, use 1.5cm margins with A4 page size
         font_buckets: Optional dict with custom bbox height thresholds for font sizing
                      Keys: "bucket_10", "bucket_11", "bucket_12"
+        enable_footnote_detection: If True, detect footnotes by position and content pattern
 
     Returns:
         Path to created document
     """
-    builder = DocumentBuilder(output_path, temp_dir=temp_dir, font_buckets=font_buckets)
+    builder = DocumentBuilder(output_path, temp_dir=temp_dir, font_buckets=font_buckets, enable_footnote_detection=enable_footnote_detection)
     builder.add_from_layout_json(layout_data, use_consistent_margins=use_consistent_margins)
     # Note: add_from_layout_json() saves the document directly
     return output_path
@@ -1572,7 +1636,8 @@ def create_pdf_from_layout_flow(
     layout_data: Dict,
     temp_dir: str = None,
     font_buckets: dict = None,
-    margin: float = None
+    margin: float = None,
+    enable_footnote_detection: bool = False
 ) -> str:
     """
     Create PDF from MinerU layout.json using flow-based rendering with dynamic spacing.
@@ -1592,11 +1657,12 @@ def create_pdf_from_layout_flow(
         temp_dir: Temporary directory containing extracted images
         font_buckets: Optional dict with custom bbox height thresholds (not used in flow mode)
         margin: Optional margin in points. If None, calculated from layout data.
+        enable_footnote_detection: If True, detect footnotes by position and content pattern
 
     Returns:
         Path to created document
     """
-    builder = DocumentBuilder(output_path, temp_dir=temp_dir, font_buckets=font_buckets)
+    builder = DocumentBuilder(output_path, temp_dir=temp_dir, font_buckets=font_buckets, enable_footnote_detection=enable_footnote_detection)
     builder.add_from_layout_json_flow(layout_data, margin=margin)
     builder.finalize()
     return output_path

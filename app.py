@@ -48,6 +48,7 @@ def process_pdf(
     binarize_block_size: int,
     binarize_c_constant: int,
     enable_formula: bool,
+    enable_footnote_detection: bool,
     font_bucket_9: float,
     font_bucket_10: float,
     font_bucket_11: float,
@@ -72,6 +73,7 @@ def process_pdf(
         binarize_block_size: Block size for adaptive thresholding (odd number, 11-51)
         binarize_c_constant: C constant subtracted from mean for adaptive thresholding (0-30)
         enable_formula: If True, enable MinerU formula recognition; if False, treat as text
+        enable_footnote_detection: If True, detect footnotes by position and content pattern
         font_bucket_9: Line height threshold in points for 9pt font (default 8.0)
         font_bucket_10: Line height threshold in points for 10pt font (default 18.0)
         font_bucket_11: Line height threshold in points for 11pt font (default 21.0)
@@ -202,6 +204,7 @@ def process_pdf(
                         "enable_line_calibration": enable_line_calibration,
                         "target_line_height": target_line_height,
                         "overlap_threshold": overlap_threshold,
+                        "enable_footnote_detection": enable_footnote_detection,
                         "font_buckets": {
                             "bucket_9": font_bucket_9,
                             "bucket_10": font_bucket_10,
@@ -272,7 +275,8 @@ def process_pdf(
                             "bucket_11": font_bucket_11,
                             "bucket_12": font_bucket_12,
                             "bucket_14": font_bucket_14,
-                        }
+                        },
+                        enable_footnote_detection=enable_footnote_detection
                     )
                 else:
                     # Use layout.json with flow-based rendering and dynamic spacing
@@ -295,6 +299,7 @@ def process_pdf(
                         layout_data=layout_data,
                         temp_dir=temp_dir,
                         margin=calculated_margin,
+                        enable_footnote_detection=enable_footnote_detection
                     )
             else:
                 # Fallback to content_list.json for flow-based rendering
@@ -377,6 +382,7 @@ def apply_corrections_and_generate_pdf(
         enable_line_calibration = state_data.get("enable_line_calibration", False)
         target_line_height = state_data.get("target_line_height", 34.0)
         overlap_threshold = state_data.get("overlap_threshold", -10.0)
+        enable_footnote_detection = state_data.get("enable_footnote_detection", False)
         font_buckets = state_data.get("font_buckets", {})
 
         if processor is None:
@@ -415,7 +421,8 @@ def apply_corrections_and_generate_pdf(
                 layout_data=layout_data,
                 temp_dir=temp_dir,
                 use_consistent_margins=False,
-                font_buckets=font_buckets
+                font_buckets=font_buckets,
+                enable_footnote_detection=enable_footnote_detection
             )
         else:
             # Use flow-based rendering with dynamic spacing
@@ -436,6 +443,7 @@ def apply_corrections_and_generate_pdf(
                 layout_data=layout_data,
                 temp_dir=temp_dir,
                 margin=calculated_margin,
+                enable_footnote_detection=enable_footnote_detection
             )
 
         final_status = f"{status_msg}\n✅ Final PDF generated successfully!"
@@ -518,6 +526,12 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 label="Enable formula detection",
                 value=False,
                 info="Disable if text is being misclassified as equations (e.g., single letters or special characters)"
+            )
+
+            enable_footnote_detection = gr.Checkbox(
+                label="Detect footnotes automatically",
+                value=False,
+                info="Detect footnotes at page bottom (numbered definitions) and render in smaller font (8pt)"
             )
 
             gr.Markdown("---")
@@ -720,7 +734,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
     process_btn.click(
         fn=process_pdf,
         inputs=[pdf_input, language, download_raw, keep_original_margins, binarize_enabled,
-                binarize_block_size, binarize_c_constant, enable_formula,
+                binarize_block_size, binarize_c_constant, enable_formula, enable_footnote_detection,
                 font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14,
                 enable_ocr_correction, quality_cutoff, enable_line_calibration, target_line_height, overlap_threshold],
         outputs=[
