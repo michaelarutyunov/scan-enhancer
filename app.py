@@ -87,6 +87,8 @@ def process_pdf(
     pdf_path = pdf_file.name
     temp_pdf_to_cleanup = None
     binarized_pdf_path = None
+    # Save original filename for final output naming (before any preprocessing)
+    original_base_name = clean_filename(os.path.basename(pdf_path))
 
     try:
         # Validate file
@@ -183,6 +185,7 @@ def process_pdf(
                         "processor": processor,
                         "temp_dir": temp_dir,
                         "pdf_path": pdf_path,
+                        "original_base_name": original_base_name,  # Store original filename for final output
                         "keep_original_margins": keep_original_margins,
                         "font_buckets": {
                             "bucket_9": font_bucket_9,
@@ -218,10 +221,9 @@ def process_pdf(
             # No OCR correction needed - proceed directly to PDF generation
             progress(0.85, desc="Parsing complete! Building PDF...")
 
-            # Create output filename with timestamp
-            base_name = clean_filename(os.path.basename(pdf_path))
+            # Create output filename with timestamp using original filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = f"{base_name}_final_{timestamp}.pdf"
+            output_path = f"{original_base_name}_final_{timestamp}.pdf"
 
             # DEBUG: Trace code path
             print("=" * 80)
@@ -355,11 +357,11 @@ def apply_corrections_and_generate_pdf(
         # Load corrected layout
         layout_data = processor.load_layout()
 
-        # Generate PDF from corrected layout with proper filename
+        # Generate PDF from corrected layout with proper filename using original base name
         from datetime import datetime
-        base_name = clean_filename(os.path.basename(pdf_path))
+        original_base_name = state_data.get("original_base_name", clean_filename(os.path.basename(pdf_path)))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_pdf = f"{base_name}_final_{timestamp}.pdf"
+        output_pdf = f"{original_base_name}_final_{timestamp}.pdf"
 
         use_consistent_margins = not keep_original_margins
         create_pdf_from_layout(
