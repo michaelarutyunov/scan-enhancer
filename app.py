@@ -279,7 +279,7 @@ def process_pdf(
 
             # Return (output PDF, binarized PDF, ZIP, corrections_table, apply_btn, state, status, correction_status)
             return (
-                output_path,  # Final PDF
+                gr.update(value=output_path, visible=True),  # Final PDF - show download button
                 binarized_pdf_path,
                 zip_path if (download_raw and zip_path and os.path.exists(zip_path)) else None,
                 gr.update(visible=False),  # Hide corrections table
