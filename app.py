@@ -530,7 +530,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             process_btn = gr.Button(
-                "🔍 De-noise & OCR",
+                "🔍 Process the document",
                 variant="primary",
                 size="lg"
             )
@@ -630,10 +630,14 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             correction_status      # Correction results
         ]
     ).then(
-        # Show the output_file button if a PDF was generated (i.e., output_file is not None)
-        fn=lambda pdf: gr.update(visible=pdf is not None),
-        inputs=[output_file],
-        outputs=[output_file]
+        # Show output files when they have values AND checkbox is enabled
+        fn=lambda final, binarized, mineru, binarize_checked, mineru_checked: (
+            gr.update(visible=final is not None),  # output_file (always show if available)
+            gr.update(visible=binarized is not None and binarize_checked),  # binarized_file (only if checkbox checked)
+            gr.update(visible=mineru is not None and mineru_checked),  # mineru_output (only if checkbox checked)
+        ),
+        inputs=[output_file, binarized_file, mineru_output, binarize_enabled, download_raw],
+        outputs=[output_file, binarized_file, mineru_output]
     )
 
     # Connect correction apply function
