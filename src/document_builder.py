@@ -7,7 +7,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
@@ -191,13 +191,13 @@ class DocumentBuilder:
         )
 
         # Flow mode styles (used when keep_original_margins=False)
-        # Titles: 14pt bold, centered, larger spacing after
+        # Titles: 12pt bold, centered, larger spacing after
         self.flow_title_style = ParagraphStyle(
             'FlowTitle',
             parent=self.styles['Normal'],
             fontName=self.font_name_bold,
-            fontSize=14,
-            leading=17,  # ~1.2x for titles
+            fontSize=12,
+            leading=15,  # ~1.25x for titles
             alignment=TA_CENTER,
             spaceAfter=0.4 * cm,  # Larger interval after titles (base value, will be adjusted dynamically)
         )
@@ -213,14 +213,25 @@ class DocumentBuilder:
             spaceAfter=0.1 * cm,  # Base spacing (will be adjusted dynamically)
         )
 
-        # Discarded blocks (page numbers, footnotes): small, centered
-        self.flow_discarded_style = ParagraphStyle(
-            'FlowDiscarded',
+        # Page numbers: small, right-aligned
+        self.flow_page_number_style = ParagraphStyle(
+            'FlowPageNumber',
             parent=self.styles['Normal'],
             fontName=self.font_name,
             fontSize=8,
             leading=10,
-            alignment=TA_CENTER,
+            alignment=TA_RIGHT,
+            spaceAfter=0,
+        )
+
+        # Footnotes: small, left-aligned
+        self.flow_footnote_style = ParagraphStyle(
+            'FlowFootnote',
+            parent=self.styles['Normal'],
+            fontName=self.font_name,
+            fontSize=8,
+            leading=10,
+            alignment=TA_LEFT,
             spaceAfter=0,
         )
 
@@ -794,6 +805,12 @@ class DocumentBuilder:
         (Paragraph, Spacer) instead of exact canvas positioning. Spacing is
         dynamically adjusted to fit content on each page.
 
+        Features:
+        - Titles: 12pt bold, centered, first line gets 0.4cm space before, last gets 0.4cm after
+        - Multi-line titles: middle lines get 0.1cm spacing (tighter)
+        - Gap detection: blocks separated by >30px get 2.5cm spacer
+        - Discarded blocks: page numbers (bottom, right-aligned), footnotes (left-aligned)
+
         Args:
             layout_data: Parsed layout.json content with pdf_info array
         """
@@ -813,24 +830,42 @@ class DocumentBuilder:
         available_width = page_width_pt - (2 * margin)
         available_height = page_height_pt - (2 * margin)
 
+        # Gap detection threshold (30 pixels)
+        GAP_THRESHOLD_PX = 30
+        # Large spacer for detected gaps (2.5cm)
+        LARGE_SPACER = 2.5 * cm
+
         # Group blocks by page_idx
         from collections import defaultdict
         pages = defaultdict(list)
 
         for page_data in pdf_info:
             page_idx = page_data.get("page_idx", 0)
+            page_size_px = page_data.get("page_size", first_page_size)
+            page_height_px = page_size_px[1]
 
-            # Process content blocks (preproc_blocks)
+            # Track last block position for gap detection
+            last_block_bottom = None
+
+            # Process content blocks (preproc_blocks) in order
             preproc_blocks = page_data.get("preproc_blocks", [])
             for block in preproc_blocks:
                 block_type = block.get("type", "text")
+                bbox = block.get("bbox", [0, 0, 100, 100])
+                block_top = bbox[1]
+
+                # Check for gap between blocks
+                if last_block_bottom is not None:
+                    gap = block_top - last_block_bottom
+                    if gap > GAP_THRESHOLD_PX:
+                        # Insert gap spacer
+                        pages[page_idx].append(('spacer', LARGE_SPACER, 0))
 
                 # Extract text lines from block
                 text_lines = self._extract_text_lines_from_block(block)
 
                 if block_type == "image":
                     # Extract image dimensions
-                    bbox = block.get("bbox", [0, 0, 100, 100])
                     # Find image path
                     blocks = block.get("blocks", [])
                     image_path = None
@@ -849,25 +884,72 @@ class DocumentBuilder:
 
                     # Calculate image height in points
                     bbox_height = bbox[3] - bbox[1]
-                    dpi = self._dpi
-                    image_height_pt = bbox_height / dpi * 72
+                    image_height_pt = bbox_height / self._dpi * 72
 
-                    pages[page_idx].append(('image', (image_path, available_width, image_height_pt), 0.1 * cm))
+                    # Store image with metadata for multi-line title tracking
+                    pages[page_idx].append({
+                        'type': 'image',
+                        'content': (image_path, available_width, image_height_pt),
+                        'spacing': 0.1 * cm,
+                        'is_first_in_group': False,
+                        'is_last_in_group': False
+                    })
+
+                    # Update last block position
+                    last_block_bottom = bbox[3]
 
                 elif text_lines:
-                    # Add text content
-                    for line in text_lines:
-                        if block_type == "title":
-                            pages[page_idx].append(('title', line, 0.4 * cm))
-                        else:
-                            pages[page_idx].append(('text', line, 0.1 * cm))
+                    # For titles, we need to track first/last line for proper spacing
+                    if block_type == "title":
+                        # First title line gets special treatment (space before)
+                        for i, line in enumerate(text_lines):
+                            is_first = (i == 0)
+                            is_last = (i == len(text_lines) - 1)
+                            # Spacing: first gets 0.4cm before (handled in render), middle get 0.1cm, last gets 0.4cm
+                            spacing = 0.4 * cm if is_last else 0.1 * cm
+                            pages[page_idx].append({
+                                'type': 'title',
+                                'content': line,
+                                'spacing': spacing,
+                                'is_first_in_group': is_first,
+                                'is_last_in_group': is_last
+                            })
+                    else:
+                        # Regular text
+                        for line in text_lines:
+                            pages[page_idx].append({
+                                'type': 'text',
+                                'content': line,
+                                'spacing': 0.1 * cm,
+                                'is_first_in_group': False,
+                                'is_last_in_group': False
+                            })
+
+                    # Update last block position
+                    last_block_bottom = bbox[3]
 
             # Process discarded blocks (page numbers, footnotes) - add at end
             discarded_blocks = page_data.get("discarded_blocks", [])
             for block in discarded_blocks:
                 text_lines = self._extract_text_lines_from_block(block)
+                if not text_lines:
+                    continue
+
+                bbox = block.get("bbox", [0, 0, 100, 100])
+                block_bottom = bbox[3]
+
+                # Determine if page number or footnote based on position
+                # Page numbers are typically at the bottom 15% of the page
+                is_page_number = block_bottom > (page_height_px * 0.85)
+
                 for line in text_lines:
-                    pages[page_idx].append(('discarded', line, 0))
+                    pages[page_idx].append({
+                        'type': 'page_number' if is_page_number else 'footnote',
+                        'content': line,
+                        'spacing': 0,
+                        'is_first_in_group': False,
+                        'is_last_in_group': False
+                    })
 
         # Process each page
         for page_idx in sorted(pages.keys()):
@@ -878,7 +960,7 @@ class DocumentBuilder:
                 self.story.append(PageBreak())
 
             # Calculate total height with base spacing
-            total_text_height, total_spacing = self._calculate_content_height_with_spacing(
+            total_text_height, total_spacing = self._calculate_content_height_with_spacing_dict(
                 content_items, available_width, available_height
             )
             total_height = total_text_height + total_spacing
@@ -896,20 +978,39 @@ class DocumentBuilder:
                     print(f"Info: Page {page_idx + 1} spacing adjusted to {multiplier * 100:.1f}% to fit content.")
 
             # Render content with adjusted spacing
-            for item_type, content, base_spacing in content_items:
-                if item_type in ('text', 'title', 'discarded'):
-                    # Select style
+            for item in content_items:
+                item_type = item['type']
+
+                if item_type == 'spacer':
+                    # Gap spacer - also gets scaled
+                    adjusted_spacing = item['content'] * multiplier
+                    if adjusted_spacing < 0.1 * cm:
+                        adjusted_spacing = 0.1 * cm
+                    self.story.append(Spacer(1, adjusted_spacing))
+
+                elif item_type in ('text', 'title', 'page_number', 'footnote'):
+                    # Select base style
                     if item_type == 'title':
                         base_style = self.flow_title_style
-                    elif item_type == 'discarded':
-                        base_style = self.flow_discarded_style
+                    elif item_type == 'page_number':
+                        base_style = self.flow_page_number_style
+                    elif item_type == 'footnote':
+                        base_style = self.flow_footnote_style
                     else:
                         base_style = self.flow_body_style
 
                     # Adjust spacing
+                    base_spacing = item['spacing']
                     adjusted_spacing = base_spacing * multiplier
                     if adjusted_spacing < 0.1 * cm:
                         adjusted_spacing = 0.1 * cm  # Minimum threshold
+
+                    # For first title line, add space before
+                    if item_type == 'title' and item['is_first_in_group']:
+                        space_before = 0.4 * cm * multiplier
+                        if space_before < 0.1 * cm:
+                            space_before = 0.1 * cm
+                        self.story.append(Spacer(1, space_before))
 
                     # Create style with adjusted spacing
                     style = ParagraphStyle(
@@ -919,12 +1020,12 @@ class DocumentBuilder:
                     )
 
                     # Clean text and add paragraph
-                    clean_text = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    clean_text = item['content'].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                     self.story.append(Paragraph(clean_text, style))
 
                 elif item_type == 'image':
                     # Add image with original size
-                    image_path, img_width, img_height = content
+                    image_path, img_width, img_height = item['content']
 
                     if image_path and self.temp_dir:
                         # Construct full path
@@ -937,6 +1038,7 @@ class DocumentBuilder:
                                 from reportlab.platypus import Image as RLImage
                                 rl_image = RLImage(full_path, width=img_width, height=img_height)
                                 # Adjust spacing after image
+                                base_spacing = item['spacing']
                                 adjusted_spacing = base_spacing * multiplier
                                 if adjusted_spacing < 0.1 * cm:
                                     adjusted_spacing = 0.1 * cm
@@ -944,6 +1046,63 @@ class DocumentBuilder:
                                 self.story.append(Spacer(1, adjusted_spacing))
                             except Exception as e:
                                 print(f"Warning: Could not add image {full_path}: {e}")
+
+    def _calculate_content_height_with_spacing_dict(
+        self,
+        content_items: List[Dict],
+        page_width: float,
+        available_height: float
+    ) -> Tuple[float, float]:
+        """
+        Calculate total height of content items (dict format) with their spacing.
+
+        Args:
+            content_items: List of dicts with 'type', 'content', 'spacing' keys
+            page_width: Available page width in points
+            available_height: Available page height in points
+
+        Returns:
+            Tuple of (total_height, spacing_sum) in points
+        """
+        total_height = 0
+        spacing_sum = 0
+
+        for item in content_items:
+            item_type = item['type']
+
+            if item_type == 'spacer':
+                # Gap spacer
+                spacing_sum += item['content']
+
+            elif item_type in ('text', 'title', 'page_number', 'footnote'):
+                # Determine appropriate style
+                if item_type == 'title':
+                    style = self.flow_title_style
+                elif item_type == 'page_number':
+                    style = self.flow_page_number_style
+                elif item_type == 'footnote':
+                    style = self.flow_footnote_style
+                else:
+                    style = self.flow_body_style
+
+                # Create temporary paragraph and measure its height
+                clean_text = item['content'].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                temp_para = Paragraph(clean_text, style)
+                _, text_height = temp_para.wrap(page_width, available_height)
+                total_height += text_height
+                spacing_sum += item['spacing']
+
+                # Add space before for first title line
+                if item_type == 'title' and item['is_first_in_group']:
+                    spacing_sum += 0.4 * cm
+
+            elif item_type == 'image':
+                # Images have fixed height (path, width, height in points)
+                _, _, height = item['content']
+                total_height += height
+                spacing_sum += item['spacing']
+
+        return total_height, spacing_sum
 
     def finalize_layout(self):
         """
