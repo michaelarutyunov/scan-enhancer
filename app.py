@@ -196,19 +196,19 @@ def process_pdf(
                     status_msg = f"✅ MinerU completed. Found {len(low_conf_items)} low-confidence items. Please review and correct below."
 
                     # Return early - don't generate PDF yet
-                    # Convert DataFrame to list of lists format (most compatible with Gradio)
-                    # Include headers as first row
-                    table_data = [df.columns.tolist()] + df.values.tolist()
+                    # Convert DataFrame to list of lists format WITHOUT headers
+                    # (Headers are defined in the component itself)
+                    table_data = df.values.tolist()
                     print(f"DEBUG: Returning data with {len(df)} rows")
-                    print(f"DEBUG: Table data format: {len(table_data)} rows (including header)")
-                    print(f"DEBUG: First 3 rows: {table_data[:3]}")
+                    print(f"DEBUG: Table data (no headers): {len(table_data)} rows")
+                    print(f"DEBUG: First 3 data rows: {table_data[:3]}")
 
                     # Return: (output_file, binarized, mineru_zip, corrections_table, correction_panel_visible, state, status, correction_status_visible)
                     return (
                         None,  # No final PDF yet
                         binarized_pdf_path,
                         zip_path if download_raw else None,
-                        table_data,  # Return as list of lists (headers + data)
+                        gr.update(value=table_data),  # Explicitly update DataFrame value
                         gr.update(visible=True),  # Show correction panel
                         state_data,  # Store for apply_corrections
                         status_msg,
@@ -341,11 +341,10 @@ def apply_corrections_and_generate_pdf(
 
         # Convert corrections data to DataFrame if it's a list
         if isinstance(corrections_df, list):
-            # First row is headers, rest is data
-            if len(corrections_df) > 1:
-                headers = corrections_df[0]
-                data = corrections_df[1:]
-                corrections_df = pd.DataFrame(data, columns=headers)
+            # Data comes as rows only (headers defined in component)
+            if len(corrections_df) > 0:
+                headers = ["Page", "Score", "Type", "Original", "Correction"]
+                corrections_df = pd.DataFrame(corrections_df, columns=headers)
             else:
                 return None, "❌ Error: No corrections data provided."
 
@@ -568,7 +567,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 gr.Markdown("Review and correct OCR errors below. Edit the 'Correction' column.")
 
                 corrections_table = gr.DataFrame(
-                    value=[["Page", "Score", "Type", "Original", "Correction"]],  # Initial empty with headers
+                    headers=["Page", "Score", "Type", "Original", "Correction"],
                     interactive=True,
                     wrap=True,
                     label="Corrections Table"
