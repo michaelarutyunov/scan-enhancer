@@ -273,12 +273,12 @@ def process_pdf(
                     print("DEBUG: Using layout.json for flow-based rendering with original margins")
 
                     # Calculate DPI from page size for margin calculation
-                    from reportlab.lib.pagesizes import A4
                     pdf_info = layout_data.get("pdf_info", [])
                     if pdf_info:
                         first_page_size = pdf_info[0].get("page_size", [612, 792])
-                        # Calculate DPI: A4 width in points / page width in pixels
-                        dpi = A4[0] / first_page_size[0] * 72
+                        # Use the same DPI calculation as DocumentBuilder
+                        temp_builder = DocumentBuilder.__new__(DocumentBuilder)
+                        dpi = temp_builder._calculate_dpi_from_page_size(first_page_size)
                         # Calculate margins from layout
                         calculated_margin = calculate_margins_from_layout(layout_data, dpi)
                     else:
@@ -414,12 +414,12 @@ def apply_corrections_and_generate_pdf(
         else:
             # Use flow-based rendering with dynamic spacing
             # Calculate margins from layout
-            from reportlab.lib.pagesizes import A4
             pdf_info = layout_data.get("pdf_info", [])
             if pdf_info:
                 first_page_size = pdf_info[0].get("page_size", [612, 792])
-                # Calculate DPI: A4 width in points / page width in pixels
-                dpi = A4[0] / first_page_size[0] * 72
+                # Use the same DPI calculation as DocumentBuilder
+                temp_builder = DocumentBuilder.__new__(DocumentBuilder)
+                dpi = temp_builder._calculate_dpi_from_page_size(first_page_size)
                 # Calculate margins from layout
                 calculated_margin = calculate_margins_from_layout(layout_data, dpi)
             else:

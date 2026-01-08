@@ -94,10 +94,11 @@ This tool produces:
 1. Upload a scanned PDF document (max 200 MB, 600 pages)
 2. **Optional**: Adjust "Pre-process PDF" settings for noisy scans
 3. Select document language (Russian, English, Chinese, etc.) for better OCR accuracy
-4. **Optional**: Adjust font size buckets if automatic sizing needs tuning
-5. Click "🔍 Process the document"
-6. **If low-confidence items found**: Review and correct in the table, then click "✅ Apply Corrections"
-7. Download the cleaned PDF
+4. **Optional**: Enable "Line Calibration" if text appears overlapping in output
+5. **Optional**: Adjust font size buckets if automatic sizing needs tuning
+6. Click "🔍 Process the document"
+7. **If low-confidence items found**: Review and correct in the table, then click "✅ Apply Corrections"
+8. Download the cleaned PDF
 
 ### Advanced Settings
 
@@ -126,6 +127,37 @@ Enable this for documents with:
   - Lower = more items to review
   - Higher = fewer items
   - Default: 0.9
+
+#### Line Calibration (Overlap Fixing)
+
+Enable this to fix overlapping text by reducing line heights in blocks with excessive spacing.
+
+**When to use:**
+- Text appears vertically overlapping in the output PDF
+- Lines are too close together or touching
+- Some fonts appear too large for their content
+
+**Parameters:**
+- **Target Line Height** (0-50px, default 34px): Maximum line height before fixing is triggered
+  - Blocks with median height > this value will be reduced
+  - Lower = more aggressive (fixes more blocks)
+  - Higher = more conservative (fixes fewer blocks)
+  - Set based on visual appearance of overlapping text
+
+- **Overlap Threshold** (-50 to 0px, default -10px): Optional secondary filter
+  - Only fixes blocks with overlap worse than this value
+  - More negative = more severe overlap required
+  - Set to 0 to disable this filter (use only Target Line Height)
+
+**How it works:**
+1. Analyzes each text block in layout.json
+2. Calculates median bbox height (in pixels)
+3. If height exceeds Target Line Height (and optionally, Overlap Threshold):
+   - Reduces bbox heights proportionally to map to smaller font sizes
+   - Keeps text positions intact, only reduces vertical spacing
+4. Result: Smaller fonts that don't overlap
+
+**Note:** This feature is opt-in (disabled by default) to preserve original fonts for documents without overlap issues.
 
 #### Font Size Buckets
 
