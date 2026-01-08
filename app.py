@@ -279,7 +279,7 @@ def process_pdf(
 
             # Return (output PDF, binarized PDF, ZIP, corrections_table, apply_btn, state, status, correction_status)
             return (
-                gr.update(value=output_path, visible=True),  # Final PDF - show download button
+                output_path,  # Final PDF (as plain string, .then() will set visibility)
                 binarized_pdf_path,
                 zip_path if (download_raw and zip_path and os.path.exists(zip_path)) else None,
                 gr.update(visible=False),  # Hide corrections table
@@ -629,6 +629,11 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             main_status,           # Status message
             correction_status      # Correction results
         ]
+    ).then(
+        # Show the output_file button if a PDF was generated (i.e., output_file is not None)
+        fn=lambda pdf: gr.update(visible=pdf is not None),
+        inputs=[output_file],
+        outputs=[output_file]
     )
 
     # Connect correction apply function
