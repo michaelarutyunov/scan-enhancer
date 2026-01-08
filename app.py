@@ -208,8 +208,8 @@ def process_pdf(
                         None,  # No final PDF yet
                         binarized_pdf_path,
                         zip_path if download_raw else None,
-                        gr.update(value=table_data),  # Explicitly update DataFrame value
-                        gr.update(visible=True),  # Show correction panel
+                        gr.update(value=table_data, visible=True),  # Set BOTH value AND visibility
+                        gr.update(visible=True),  # Show apply button (correction_panel is now dummy)
                         state_data,  # Store for apply_corrections
                         status_msg,
                         gr.update(visible=False)  # Hide correction status initially
@@ -277,13 +277,13 @@ def process_pdf(
                 except:
                     pass
 
-            # Return (output PDF, binarized PDF, ZIP, corrections_table, correction_panel, state, status, correction_status)
+            # Return (output PDF, binarized PDF, ZIP, corrections_table, apply_btn, state, status, correction_status)
             return (
                 output_path,  # Final PDF
                 binarized_pdf_path,
                 zip_path if (download_raw and zip_path and os.path.exists(zip_path)) else None,
-                None,  # No corrections table
-                gr.update(visible=False),  # Hide correction panel
+                gr.update(visible=False),  # Hide corrections table
+                gr.update(visible=False),  # Hide apply button
                 None,  # No state needed
                 "✅ Processing complete!",
                 gr.update(visible=False)  # Hide correction status
@@ -561,28 +561,33 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 visible=True
             )
 
-            # Low Confidence Text correction panel (hidden initially)
-            with gr.Column(visible=False) as correction_panel:
-                gr.Markdown("### Low Confidence Text")
-                gr.Markdown("Review and correct OCR errors below. Edit the 'Correction' column.")
+            # Low Confidence Text correction panel
+            # NOTE: DataFrame moved outside hidden container due to Gradio rendering bug
+            correction_header = gr.Markdown("### Low Confidence Text", visible=False)
+            correction_instructions = gr.Markdown("Review and correct OCR errors below. Edit the 'Correction' column.", visible=False)
 
-                corrections_table = gr.DataFrame(
-                    headers=["Page", "Score", "Type", "Original", "Correction"],
-                    interactive=True,
-                    wrap=True,
-                    label="Corrections Table"
-                )
+            corrections_table = gr.DataFrame(
+                headers=["Page", "Score", "Type", "Original", "Correction"],
+                interactive=True,
+                wrap=True,
+                label="Corrections Table",
+                visible=False  # Start hidden, show when data available
+            )
 
-                apply_corrections_btn = gr.Button(
-                    "✅ Apply Corrections",
-                    variant="primary"
-                )
+            apply_corrections_btn = gr.Button(
+                "✅ Apply Corrections",
+                variant="primary",
+                visible=False  # Start hidden
+            )
 
-                correction_status = gr.Textbox(
-                    label="Correction Status",
-                    interactive=False,
-                    visible=False
-                )
+            correction_status = gr.Textbox(
+                label="Correction Status",
+                interactive=False,
+                visible=False
+            )
+
+            # Dummy component to replace correction_panel in outputs
+            correction_panel = gr.Column(visible=False)
 
             output_file = gr.File(
                 label="📥 Download Final PDF",
@@ -622,8 +627,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             output_file,           # Final PDF (None if corrections needed)
             binarized_file,        # Binarized PDF
             mineru_output,         # MinerU ZIP
-            corrections_table,     # DataFrame for corrections
-            correction_panel,      # Show/hide corrections panel
+            corrections_table,     # DataFrame for corrections (now also controls visibility)
+            apply_corrections_btn, # Show/hide apply button
             processor_state,       # Store processor instance
             main_status,           # Status message
             correction_status      # Correction results
