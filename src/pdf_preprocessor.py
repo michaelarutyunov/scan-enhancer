@@ -211,3 +211,113 @@ def get_missing_dependencies() -> list:
     except ImportError:
         missing.append("img2pdf")
     return missing
+
+
+def fix_overlapping_blocks(layout_data: dict, fixed_line_height: int = 14) -> dict:
+    """
+    Fix text overlap by reducing bbox heights to trigger smaller fonts.
+
+    Analyzes layout.json for blocks with overlapping lines (negative gaps between
+    consecutive line bboxes) and reduces bbox heights to map to a smaller font
+    size, which reduces leading and prevents visual overlap.
+
+    Args:
+        layout_data: Parsed layout.json with pdf_info array from MinerU
+        fixed_line_height: The FIXED_LINE_HEIGHT used in document_builder (default 14pt)
+
+    Returns:
+        Modified layout_data with adjusted bbox heights for overlapping blocks
+
+    Note:
+        Font bucket thresholds must match document_builder.py:
+        < 18pt → 8pt, < 17pt → 9pt, < 22pt → 10pt, < 28pt → 11pt,
+        < 30pt → 12pt, < 32pt → 13pt, >= 32pt → 14pt
+    """
+    # Font bucket thresholds (must match document_builder.py)
+    FONT_BUCKETS = [
+        (8, 18),   # < 18pt → 8pt
+        (9, 17),   # < 17pt → 9pt
+        (10, 22),  # < 22pt → 10pt
+        (11, 28),  # < 28pt → 11pt
+        (12, 30),  # < 30pt → 12pt
+        (13, 32),  # < 32pt → 13pt
+        (14, 999), # >= 32pt → 14pt
+    ]
+
+    # Safe font targets for each fixed_line_height value
+    # Based on: rendered_height = font * 1.2 * 1.15 = font * 1.38
+    # We need: font * 1.38 <= fixed_line_height
+    SAFE_FONTS = {
+        14: 9,   # 14pt spacing → 9pt font (2.1pt buffer)
+        16: 10,  # 16pt spacing → 10pt font (2.2pt buffer)
+        18: 11,  # 18pt spacing → 11pt font (2.8pt buffer)
+    }
+
+    target_font = SAFE_FONTS.get(fixed_line_height, 9)
+
+    # Find the threshold for the target font
+    target_threshold = None
+    for font, threshold in FONT_BUCKETS:
+        if font == target_font:
+            target_threshold = threshold
+            break
+
+    if target_threshold is None:
+        return layout_data
+
+    # Convert target threshold from points to pixels
+    # Assuming ~72 DPI for typical scanned documents (1pt ≈ 0.47px)
+    # This matches the conversion in document_builder.py
+    target_threshold_px = target_threshold / 0.47
+
+    # Add 1pt safety margin (in pixels)
+    target_median_px = (target_threshold - 1.0) / 0.47
+
+    blocks_fixed = 0
+
+    for page in layout_data.get('pdf_info', []):
+        for block in page.get('preproc_blocks', []):
+            lines = block.get('lines', [])
+            if len(lines) < 2:
+                continue
+
+            # Step 1: Detect overlap (negative gaps between consecutive lines)
+            has_overlap = False
+            for i in range(1, len(lines)):
+                gap = lines[i]['bbox'][1] - lines[i-1]['bbox'][3]
+                if gap < 0:
+                    has_overlap = True
+                    break
+
+            if not has_overlap:
+                continue
+
+            # Step 2: Get median bbox height
+            heights = [l['bbox'][3] - l['bbox'][1] for l in lines]
+            median_px = sorted(heights)[len(heights) // 2]
+
+            # Step 3: Calculate reduction factor
+            # Only reduce if current median is larger than target
+            if median_px <= target_median_px:
+                continue
+
+            reduction_factor = target_median_px / median_px
+
+            # Step 4: Apply reduction (keep y1, reduce y2)
+            for line in lines:
+                y1 = line['bbox'][1]
+                old_height = line['bbox'][3] - y1
+                new_height = old_height * reduction_factor
+                line['bbox'][3] = y1 + new_height
+
+            # Step 5: Update block bbox to contain the modified lines
+            all_y1 = [l['bbox'][1] for l in lines]
+            all_y2 = [l['bbox'][3] for l in lines]
+            block['bbox'][1] = min(all_y1)
+            block['bbox'][3] = max(all_y2)
+
+            blocks_fixed += 1
+
+    print(f"fix_overlapping_blocks: Fixed {blocks_fixed} blocks with overlapping lines")
+
+    return layout_data

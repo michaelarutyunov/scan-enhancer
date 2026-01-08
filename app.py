@@ -20,7 +20,7 @@ load_dotenv()
 from src.mineru_processor import MinerUAPIProcessor
 from src.document_builder import create_pdf_from_mineru, create_pdf_from_layout
 from src.utils import validate_pdf_path, check_file_size_limit, clean_filename
-from src.pdf_preprocessor import preprocess_pdf, is_available
+from src.pdf_preprocessor import preprocess_pdf, is_available, fix_overlapping_blocks
 
 # Initialize MinerU API processor
 # API key should be set in HF Space secrets as MINERU_API_KEY
@@ -239,6 +239,9 @@ def process_pdf(
             # Build PDF from MinerU output
             # Choose rendering method based on margin preference
             if layout_data:
+                # Fix any overlapping text blocks before rendering
+                layout_data = fix_overlapping_blocks(layout_data)
+
                 # Use layout.json for exact positioning
                 # Apply consistent margins if user requested them
                 use_consistent_margins = not keep_original_margins
@@ -356,6 +359,9 @@ def apply_corrections_and_generate_pdf(
 
         # Load corrected layout
         layout_data = processor.load_layout()
+
+        # Fix any overlapping text blocks before rendering
+        layout_data = fix_overlapping_blocks(layout_data)
 
         # Generate PDF from corrected layout with proper filename using original base name
         from datetime import datetime
