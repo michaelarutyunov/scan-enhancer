@@ -339,9 +339,9 @@ Manual correction is more reliable than automated grammar checking because:
    └── Save to output path with format: <name>_final_<timestamp>.pdf
 
 7. RETURN TO USER
-   ├── Main output: OCR-processed PDF
-   ├── Optional: Binarized PDF (if preprocessing enabled)
-   └── Optional: Raw MinerU ZIP (for diagnostics)
+   ├── Main output: OCR-processed PDF (always shown when generated)
+   ├── Optional: Binarized PDF (shown only if "Pre-process PDF" checkbox is checked)
+   └── Optional: Raw MinerU ZIP (shown only if "Download raw MinerU output" checkbox is checked)
 ```
 
 ---
@@ -520,20 +520,24 @@ rl_y = page_height - y2  # Flip Y coordinate
 
 **Problem:** Output filenames need to be predictable and include timestamps to prevent overwrites.
 
-**Solution:** Always use consistent format:
+**Solution:** Always use consistent format with preserved original filename:
 ```python
-base_name = clean_filename(os.path.basename(pdf_path))
+# Save original filename BEFORE any preprocessing (binarization, etc.)
+original_base_name = clean_filename(os.path.basename(pdf_path))
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-output_path = f"{base_name}_final_{timestamp}.pdf"
+output_path = f"{original_base_name}_final_{timestamp}.pdf"
 ```
 
 **Applied to:**
 - Normal processing (no OCR corrections needed)
 - OCR correction workflow (after user applies corrections)
+- Both code paths use the same original filename to ensure consistency
 
 **Rationale:**
 - Predictable naming helps users find output files
 - Timestamp prevents overwrites
+- Original filename is preserved regardless of preprocessing (e.g., binarization)
+- **Example:** `extract_2.pdf` → `extract_2_final_20260108_105805.pdf` (NOT `extract_2_binarized_20260108_105746_final_...`)
 - "_final" suffix clearly indicates this is the end product
 - Consistency improves UX
 

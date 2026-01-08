@@ -95,7 +95,7 @@ This tool produces:
 2. **Optional**: Adjust "Pre-process PDF" settings for noisy scans
 3. Select document language (Russian, English, Chinese, etc.) for better OCR accuracy
 4. **Optional**: Adjust font size buckets if automatic sizing needs tuning
-5. Click "🔍 De-noise & OCR"
+5. Click "🔍 Process the document"
 6. **If low-confidence items found**: Review and correct in the table, then click "✅ Apply Corrections"
 7. Download the cleaned PDF
 
