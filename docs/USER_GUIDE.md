@@ -371,75 +371,6 @@ C=40: ▓▓▓TEXT▓▓▓  (preserve detail, may keep noise)
 
 ---
 
-### Line Calibration
-
-**Location:** Checkbox + two sliders in "OCR Quality Control"
-
-**Default:** ☐ Unchecked (opt-in feature)
-
-**What it does:** Fixes overlapping text by reducing line heights
-
-**When to enable:**
-- Lines touching or overlapping in output
-- Text appears too cramped vertically
-- Some fonts too large for content
-
-**How it works:**
-1. Analyzes median line height per block
-2. If height > Target Line Height → reduce proportionally
-3. Optionally checks overlap severity
-4. Smaller heights → smaller font bucket → readable text
-
-#### Target Line Height (0-50 pixels)
-
-**What it controls:** Maximum acceptable line height before fixing
-
-**Lower values (20-30 px):**
-- More aggressive fixing
-- Fixes more blocks
-- Smaller fonts overall
-- Use for: Very cramped originals
-
-**Default (34 px):**
-- Conservative approach
-- Only fixes obviously large text
-- Recommended starting point
-
-**Higher values (40-50 px):**
-- Very conservative
-- Only fixes extreme cases
-- Preserves original sizing more
-
-**When to adjust:**
-- Still overlapping after default? → Lower to 28-30
-- Too much changed? → Raise to 40
-
-#### Overlap Threshold (-50 to 0 pixels)
-
-**What it controls:** Secondary filter based on actual overlap severity
-
-**Default (-10 px):**
-- Only fixes if lines overlap by ≥10 pixels
-- More selective
-- Prevents over-correction
-
-**Set to 0:**
-- Disables this filter entirely
-- Uses only Target Line Height
-- More aggressive
-
-**More negative (-20 to -50):**
-- Only fixes severe overlaps
-- Very selective
-- May miss some issues
-
-**Best practice:**
-- Start with default (-10 px)
-- If output still has overlap → Set to 0
-- If over-corrected → Set to -20
-
----
-
 ### Font Size Buckets
 
 **Location:** 5 sliders at bottom of settings
@@ -582,7 +513,7 @@ Result: More text maps to 11pt bucket
 
 **Solutions:**
 1. Raise all font bucket thresholds by 3-4 points
-2. Or enable line calibration to reduce line heights
+2. Or use Flow Layout mode for automatic reformatting
 
 ---
 
@@ -591,10 +522,9 @@ Result: More text maps to 11pt bucket
 **Likely cause:** Original scan has tight line spacing
 
 **Solutions:**
-1. Enable "Line Calibration"
-2. Start with defaults (target: 34px, threshold: -10px)
-3. If still overlapping, lower target to 28-30px
-4. Or set threshold to 0 for more aggressive fixing
+1. Try using Flow Layout mode (uncheck "Keep original page margins")
+2. Adjust font bucket thresholds to map to smaller fonts
+3. Use a higher quality scan if possible
 
 ---
 

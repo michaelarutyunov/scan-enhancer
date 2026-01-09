@@ -50,9 +50,6 @@ def process_pdf(
     font_bucket_14: float,
     enable_ocr_correction: bool,
     quality_cutoff: float,
-    enable_line_calibration: bool,
-    target_line_height: float,
-    overlap_threshold: float,
     progress=gr.Progress()
 ) -> tuple:
     """
@@ -81,9 +78,6 @@ def process_pdf(
         font_bucket_14: Line height threshold in points for 14pt font (default 32.0)
         enable_ocr_correction: If True, pause for manual OCR correction of low-confidence items
         quality_cutoff: Confidence threshold for flagging items for review (0.0-1.0)
-        enable_line_calibration: If True, apply line calibration to fix overlapping text (default False)
-        target_line_height: Maximum line height in pixels before overlap fixing is triggered (default 34.0)
-        overlap_threshold: Optional maximum negative gap to ignore for overlap fixing (default -10.0)
         progress: Gradio progress tracker
 
     Returns:
@@ -127,9 +121,6 @@ def process_pdf(
             },
             enable_ocr_correction=enable_ocr_correction,
             quality_cutoff=quality_cutoff,
-            enable_line_calibration=enable_line_calibration,
-            target_line_height=target_line_height,
-            overlap_threshold=overlap_threshold,
             original_filename=original_base_name,
         )
     except ValueError as e:
@@ -265,32 +256,6 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 label="Quality Cut-off",
                 info="Confidence threshold (lower = more items to review). Recommended: 0.85-0.95",
                 interactive=True
-            )
-
-            enable_line_calibration = gr.Checkbox(
-                label="Line Calibration",
-                value=False,
-                info="Works in both modes. Fix overlapping text by adjusting line heights."
-            )
-
-            target_line_height = gr.Slider(
-                minimum=0.0,
-                maximum=50.0,
-                value=34.0,
-                step=0.5,
-                label="Target Line Height",
-                info="Maximum line height (px) before overlap fixing is triggered. Blocks taller than this will be reduced. Default: 34.0",
-                interactive=False
-            )
-
-            overlap_threshold = gr.Slider(
-                minimum=-50.0,
-                maximum=0.0,
-                value=-10.0,
-                step=0.5,
-                label="Overlap Threshold",
-                info="Fix text blocks with overlap worse than this (pixels). Lower = more aggressive, Higher = more conservative. Default: -10.0",
-                interactive=False
             )
 
             # Font Size Buckets Section (only for Exact Layout mode)
@@ -438,16 +403,6 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
         outputs=[quality_cutoff]
     )
 
-    # Grey out line calibration sliders when line calibration is disabled
-    enable_line_calibration.change(
-        fn=lambda enabled: (
-            gr.update(interactive=enabled),
-            gr.update(interactive=enabled)
-        ),
-        inputs=[enable_line_calibration],
-        outputs=[target_line_height, overlap_threshold]
-    )
-
     # Toggle font buckets visibility based on rendering mode
     rendering_mode.change(
         fn=lambda mode: gr.update(visible=(mode == "exact")),
@@ -461,7 +416,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
         inputs=[pdf_input, language, download_raw, rendering_mode, binarize_enabled,
                 binarize_block_size, binarize_c_constant, enable_formula, enable_footnote_detection,
                 font_bucket_9, font_bucket_10, font_bucket_11, font_bucket_12, font_bucket_14,
-                enable_ocr_correction, quality_cutoff, enable_line_calibration, target_line_height, overlap_threshold],
+                enable_ocr_correction, quality_cutoff],
         outputs=[
             output_file,           # Final PDF (None if corrections needed)
             binarized_file,        # Binarized PDF

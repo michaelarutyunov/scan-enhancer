@@ -14,7 +14,7 @@ from .processing_result import ProcessingResult
 from .config import PROGRESS_STEPS, DEFAULT_OUTPUT_FORMAT, MAX_FILE_SIZE_MB
 from .utils import validate_pdf_path, check_file_size_limit, clean_filename
 from .mineru_processor import MinerUAPIProcessor
-from .pdf_preprocessor import preprocess_pdf, is_available, fix_overlapping_blocks
+from .pdf_preprocessor import preprocess_pdf, is_available
 from .document_builder import (
     DocumentBuilder,
     LayoutAnalyzer,
@@ -297,9 +297,6 @@ class PDFProcessingPipeline:
             "pdf_path": pdf_path,
             "original_base_name": options.original_filename or clean_filename(os.path.basename(pdf_path)),
             "keep_original_margins": options.keep_original_margins,
-            "enable_line_calibration": options.enable_line_calibration,
-            "target_line_height": options.target_line_height,
-            "overlap_threshold": options.overlap_threshold,
             "enable_footnote_detection": options.enable_footnote_detection,
             "font_buckets": options.font_buckets.copy(),
         }
@@ -353,14 +350,6 @@ class PDFProcessingPipeline:
 
         # Choose rendering method based on available data
         if layout_data:
-            # Fix any overlapping text blocks before rendering (if enabled)
-            if options.enable_line_calibration:
-                layout_data = fix_overlapping_blocks(
-                    layout_data,
-                    target_line_height=options.target_line_height,
-                    overlap_threshold=options.overlap_threshold
-                )
-
             if options.keep_original_margins:
                 # Use layout.json for exact positioning with original margins
                 print("DEBUG: Using layout.json for exact positioning (original margins)")
@@ -430,8 +419,7 @@ def apply_corrections_and_generate_pdf(
     Args:
         corrections_df: Edited DataFrame from corrections_table (can be list or DataFrame)
         state_data: Dict with keys: processor, temp_dir, pdf_path,
-                    keep_original_margins, enable_line_calibration, target_line_height,
-                    overlap_threshold, font_buckets, original_base_name, enable_footnote_detection
+                    keep_original_margins, font_buckets, original_base_name, enable_footnote_detection
 
     Returns:
         Tuple of (final_pdf_path, status_message)
@@ -444,9 +432,6 @@ def apply_corrections_and_generate_pdf(
         temp_dir = state_data.get("temp_dir")
         pdf_path = state_data.get("pdf_path")
         keep_original_margins = state_data.get("keep_original_margins", True)
-        enable_line_calibration = state_data.get("enable_line_calibration", False)
-        target_line_height = state_data.get("target_line_height", 34.0)
-        overlap_threshold = state_data.get("overlap_threshold", -10.0)
         enable_footnote_detection = state_data.get("enable_footnote_detection", False)
         font_buckets = state_data.get("font_buckets", {})
 
@@ -468,14 +453,6 @@ def apply_corrections_and_generate_pdf(
 
         # Load corrected layout
         layout_data = processor.load_layout()
-
-        # Fix any overlapping text blocks before rendering (if enabled)
-        if enable_line_calibration:
-            layout_data = fix_overlapping_blocks(
-                layout_data,
-                target_line_height=target_line_height,
-                overlap_threshold=overlap_threshold
-            )
 
         # Generate PDF from corrected layout with proper filename using original base name
         original_base_name = state_data.get("original_base_name", clean_filename(os.path.basename(pdf_path)))

@@ -24,7 +24,7 @@ This document describes the system architecture, data flow, design decisions, an
 └──────────────┘     └──────────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
        │                     │                                              │
        │                     └─→ Binarize (optional)                User corrections
-       │                     └─→ Line Calibration (optional)        (interactive)
+       │                     └─→ Manual OCR correction (optional)    (interactive)
        │
        └────────────────────────────────────────────────────────────────────▶
                                                           Output PDF
@@ -68,10 +68,7 @@ The application processes scanned PDF documents to:
   - Document Language (dropdown: ru, ch, en, japan, korean, german, french, spanish)
   - De-noising (binarize toggle, block size slider, C constant slider)
   - Additional Settings (diagnostics, margins, formula detection)
-  - OCR Quality Control (manual correction toggle, quality cutoff slider, **line calibration toggle**)
-    - **Line Calibration** (opt-in): Fix overlapping text by adjusting line heights
-      - Target Line Height slider (0-50px): Maximum line height before fixing is triggered
-      - Overlap Threshold slider (-50 to 0px): Optional secondary filter for overlap severity
+  - OCR Quality Control (manual correction toggle, quality cutoff slider)
   - Font Size Buckets (5 configurable thresholds)
 - **Right Column (Workflow)**: Processing interface
   - Tips (file size, orientation)
@@ -89,9 +86,6 @@ The application processes scanned PDF documents to:
 - `download_raw`: Download MinerU ZIP for diagnostics (default: True)
 - `enable_ocr_correction`: Enable manual OCR correction workflow (default: True)
 - `quality_cutoff`: Confidence threshold for flagging items, 0.0-1.0 (default: 0.9)
-- `enable_line_calibration`: Enable line calibration to fix overlapping text (default: False)
-- `target_line_height`: Maximum line height in pixels before overlap fixing (default: 34.0)
-- `overlap_threshold`: Maximum negative gap in pixels to ignore for overlap fixing (default: -10.0)
 - `font_bucket_*`: Thresholds for mapping bbox heights to font sizes (default: 17, 22, 28, 30, 32)
 
 ---
@@ -137,52 +131,20 @@ The application processes scanned PDF documents to:
 - Convert PDF pages to images using pdf2image
 - Apply OpenCV adaptive thresholding for binarization
 - Rebuild PDF from binarized images
-- Fix overlapping text by adjusting bbox heights
 
 **Key Functions:**
 - `preprocess_pdf()`: Main preprocessing pipeline with progress callback
-- `fix_overlapping_blocks()`: Fix text overlap by reducing line heights
 - `_adaptive_threshold()`: Gaussian-weighted local thresholding
 - `_morphological_cleanup()`: Remove small noise artifacts
 - `is_available()`: Check if dependencies are installed
-
-**Line Calibration Logic:**
-```python
-# Problem: MinerU bbox data has overlapping lines (negative gaps)
-# Solution: Reduce bbox heights to trigger smaller fonts
-
-def fix_overlapping_blocks(layout_data, target_line_height=34, overlap_threshold=-10):
-    for block in layout_data['pdf_info']:
-        median_height = calculate_median(bbox_heights)
-
-        # Primary filter: is line height too large?
-        if median_height > target_line_height:
-            # Secondary filter (optional): is overlap severe enough?
-            if overlap_threshold < 0:
-                max_overlap = find_max_negative_gap(lines)
-                if max_overlap >= overlap_threshold:
-                    continue  # Skip if overlap isn't severe enough
-
-            # Reduce all bbox heights proportionally
-            reduction_factor = target_line_height / median_height
-            for line in block['lines']:
-                line['bbox'][3] = line['bbox'][1] + (height * reduction_factor)
-```
 
 **Rationale:**
 Scanned documents often have:
 - Background noise (speckles, dots)
 - Uneven lighting
 - Low contrast
-- Overlapping text from tight original line spacing
 
 Binarization converts each pixel to pure black or white based on local neighborhood analysis, dramatically improving OCR accuracy.
-
-Line calibration fixes visual text overlap by:
-- Detecting blocks with line heights exceeding target
-- Reducing bbox heights proportionally
-- Triggering smaller font sizes via bucket mapping
-- Preserving readability while eliminating overlap
 
 **Parameters:**
 - `block_size`: Size of neighborhood for local threshold calculation (odd, 11-51)
@@ -191,12 +153,6 @@ Line calibration fixes visual text overlap by:
 - `c_constant`: Subtracted from local mean to determine threshold (0-51)
   - **Higher = more black pixels** (lower threshold)
   - **Lower = more white pixels** (higher threshold)
-- `target_line_height`: Maximum line height before fixing (0-50px, default 34px)
-  - Lower = more aggressive (fix more blocks)
-  - Higher = more conservative (fix fewer blocks)
-- `overlap_threshold`: Negative gap threshold (-50 to 0px, default -10px)
-  - More negative = more selective (only fix severe overlaps)
-  - 0 = disable this filter, use target_line_height only
 
 ---
 
@@ -522,22 +478,6 @@ Manual correction is more reliable than automated grammar checking because:
     ├── Update span["content"] with user correction
     ├── Save modified layout.json
     └── Proceed to PDF generation with corrected data
-
-5D. LINE CALIBRATION (if enabled)
-    ├── For each page in layout.pdf_info:
-    │   ├── For each block in preproc_blocks:
-    │   │   ├── Get median bbox height (pixels)
-    │   │   ├── Skip if median height <= target_line_height (e.g., 34px)
-    │   │   ├── (Optional) Skip if max_overlap >= overlap_threshold (e.g., -10px)
-    │   │   ├── Calculate reduction factor: target_line_height / median_height
-    │   │   ├── Apply reduction to all lines in block
-    │   │   │   ├── Keep y1 (top position)
-    │   │   │   └── Reduce y2: new_y2 = y1 + (old_height × reduction_factor)
-    │   │   ├── Update block bbox to contain modified lines
-    │   │   └── Increment blocks_fixed counter
-    │   └── Print summary: "Fixed X blocks with line height > Ypx"
-    └── Return modified layout_data with reduced bbox heights
-        └── Result: Reduced bbox heights map to smaller font buckets
 
 6. BUILD PDF
    ├── Calculate DPI from page size (Letter/A4 detection)

@@ -10,8 +10,6 @@ from .config import (
     DEFAULT_BINARIZE_BLOCK_SIZE,
     DEFAULT_BINARIZE_C_CONSTANT,
     DEFAULT_QUALITY_CUTOFF,
-    DEFAULT_TARGET_LINE_HEIGHT,
-    DEFAULT_OVERLAP_THRESHOLD,
 )
 
 
@@ -47,11 +45,6 @@ class ProcessingOptions:
         enable_ocr_correction: If True, pause for manual OCR correction of low-confidence items
         quality_cutoff: Confidence threshold for flagging items for review (0.0-1.0)
 
-        # Line Calibration
-        enable_line_calibration: If True, apply line calibration to fix overlapping text
-        target_line_height: Maximum line height in pixels before overlap fixing is triggered
-        overlap_threshold: Maximum negative gap to ignore for overlap fixing
-
         # Internal State (populated by caller)
         original_filename: Original filename for final output naming (before preprocessing)
     """
@@ -80,11 +73,6 @@ class ProcessingOptions:
     enable_ocr_correction: bool = True
     quality_cutoff: float = DEFAULT_QUALITY_CUTOFF
 
-    # Line Calibration
-    enable_line_calibration: bool = False
-    target_line_height: float = DEFAULT_TARGET_LINE_HEIGHT
-    overlap_threshold: float = DEFAULT_OVERLAP_THRESHOLD
-
     # Internal State
     original_filename: Optional[str] = None
 
@@ -110,14 +98,3 @@ class ProcessingOptions:
             raise ValueError(
                 f"quality_cutoff must be between 0.0-1.0, got {self.quality_cutoff}"
             )
-
-        # Validate target_line_height and overlap_threshold
-        if self.enable_line_calibration:
-            if self.target_line_height <= 0:
-                raise ValueError(
-                    f"target_line_height must be positive, got {self.target_line_height}"
-                )
-            if self.overlap_threshold > 0:
-                raise ValueError(
-                    f"overlap_threshold must be non-positive, got {self.overlap_threshold}"
-                )

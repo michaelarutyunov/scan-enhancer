@@ -84,9 +84,6 @@ app.py (472 lines)
 - Manual Correction of Low-Confidence Items
   - Quality Cut-off explained
   - How to use correction table
-- Line Calibration
-  - Target Line Height explained
-  - Overlap Threshold explained
 - Font Size Buckets
   - How mapping works
   - When and how to adjust
@@ -96,7 +93,6 @@ app.py (472 lines)
 2. Important Legal Document
 3. Old Photocopy with Noise
 4. Math Textbook
-5. Text Overlapping in Output
 
 **Troubleshooting:**
 - Fonts too small/large

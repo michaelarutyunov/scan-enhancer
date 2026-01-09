@@ -33,10 +33,6 @@ DEFAULT_BINARIZE_C_CONSTANT = 25  # Between 0-51
 # OCR Quality Control Defaults
 DEFAULT_QUALITY_CUTOFF = 0.9  # Confidence threshold (0.0-1.0)
 
-# Line Calibration Defaults
-DEFAULT_TARGET_LINE_HEIGHT = 34.0  # Maximum line height in pixels before overlap fixing
-DEFAULT_OVERLAP_THRESHOLD = -10.0  # Maximum negative gap to ignore for overlap fixing
-
 # Output Format
 DEFAULT_OUTPUT_FORMAT = "json"  # Hardcoded for best structure preservation
 
