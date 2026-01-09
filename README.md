@@ -208,19 +208,31 @@ Adjust these if fonts appear too small/large:
 ### Architecture
 
 ```
-app.py (Gradio UI)
+app.py (Gradio UI - 472 lines)
     │
-    ├─→ pdf_preprocessor.py (Optional binarization)
-    │   └─→ pdf2image + OpenCV
-    │
-    ├─→ mineru_processor.py (API client)
-    │   └─→ MinerU Cloud API
-    │
-    ├─→ ocr_postprocessor.py (Manual correction)
-    │   └─→ pandas DataFrame
-    │
-    └─→ document_builder.py (PDF generation)
-        └─→ ReportLab
+    └─→ pipeline.py (PDFProcessingPipeline - 505 lines)
+        ├─→ processing_options.py (ProcessingOptions dataclass)
+        ├─→ processing_result.py (ProcessingResult dataclass)
+        ├─→ config.py (Configuration constants)
+        ├─→ exceptions.py (Custom exception hierarchy - 18 types)
+        │
+        ├─→ pdf_preprocessor.py (Optional binarization)
+        │   └─→ pdf2image + OpenCV
+        │
+        ├─→ mineru_processor.py (API client)
+        │   └─→ MinerU Cloud API
+        │
+        ├─→ ocr_postprocessor.py (Manual correction)
+        │   └─→ pandas DataFrame
+        │
+        └─→ document_builder/ (Modular package - 7 modules)
+            ├─→ builder.py (DocumentBuilder orchestrator)
+            ├─→ font_manager.py (Font registration & Cyrillic)
+            ├─→ coordinate_utils.py (DPI & conversion utilities)
+            ├─→ text_extractor.py (Text & footnote extraction)
+            ├─→ layout_analyzer.py (Font sizing & layout)
+            ├─→ content_renderer.py (Images, tables, equations)
+            └─→ __init__.py (Public API exports)
 ```
 
 ### Key Technical Challenges Solved
@@ -327,20 +339,40 @@ The app will be available at `http://localhost:7860`
 ```
 scan-enhancer/
 ├── src/
-│   ├── mineru_processor.py   # MinerU API client
-│   ├── document_builder.py   # PDF output from API results
-│   ├── pdf_preprocessor.py   # Optional binarization
-│   ├── ocr_postprocessor.py  # OCR quality control
-│   └── utils.py              # Helper functions
+│   ├── pipeline.py              # PDFProcessingPipeline orchestrator
+│   ├── processing_options.py    # ProcessingOptions dataclass
+│   ├── processing_result.py     # ProcessingResult dataclass
+│   ├── config.py                # Configuration constants
+│   ├── exceptions.py            # Custom exception hierarchy
+│   │
+│   ├── mineru_processor.py      # MinerU API client
+│   ├── pdf_preprocessor.py      # Optional binarization
+│   ├── ocr_postprocessor.py     # OCR quality control
+│   ├── utils.py                 # Helper functions
+│   │
+│   └── document_builder/        # Modular PDF generation package
+│       ├── __init__.py          # Public API exports
+│       ├── builder.py           # DocumentBuilder orchestrator
+│       ├── font_manager.py      # Font registration & Cyrillic
+│       ├── coordinate_utils.py  # DPI & coordinate conversion
+│       ├── text_extractor.py    # Text & footnote extraction
+│       ├── layout_analyzer.py   # Font sizing & layout analysis
+│       └── content_renderer.py  # Images, tables, equations
+│
 ├── fonts/
-│   ├── DejaVuSans.ttf        # Bundled Cyrillic font
-│   └── DejaVuSans-Bold.ttf   # Bundled bold font
-├── app.py                    # Main Gradio application
-├── requirements.txt          # Python dependencies
-├── packages.txt              # System dependencies (poppler, fonts)
-├── .env.example              # Environment variables template
-├── README.md                 # This file
-└── ARCHITECTURE.md           # Detailed technical documentation
+│   ├── DejaVuSans.ttf           # Bundled Cyrillic font
+│   └── DejaVuSans-Bold.ttf      # Bundled bold font
+│
+├── docs/
+│   ├── plans/                   # Planning documents
+│   └── USER_GUIDE.md            # User guide (usage & settings)
+│
+├── app.py                       # Main Gradio application
+├── requirements.txt             # Python dependencies
+├── packages.txt                 # System dependencies
+├── .env.example                 # Environment variables template
+├── README.md                    # This file
+└── ARCHITECTURE.md              # Technical documentation
 ```
 
 ## API Limits

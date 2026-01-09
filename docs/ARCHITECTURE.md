@@ -16,15 +16,15 @@ This document describes the system architecture, data flow, design decisions, an
 ## System Overview
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Gradio     │     │   Optional   │     │    MinerU    │     │     OCR      │     │   Document   │
-│     UI       │────▶│  Binarize    │────▶│     API      │────▶│ Postprocess  │────▶│   Builder    │
-│  (app.py)    │     │(pdf_preproc) │     │  (External)  │     │  (Manual)    │     │(document_    │
-│              │     │              │     │              │     │(ocr_postproc)│     │  builder.py) │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-       │                                                                 │
-       │                                                          User corrections
-       │                                                          (interactive)
+┌──────────────┐     ┌──────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│   Gradio     │     │   PDF Pipeline   │     │    MinerU    │     │     OCR      │     │   Document   │
+│     UI       │────▶│  Orchestrator    │────▶│     API      │────▶│ Postprocess  │────▶│   Builder    │
+│  (app.py)    │     │  (pipeline.py)   │     │  (External)  │     │  (Manual)    │     │ (modular pkg)│
+│              │     │                  │     │              │     │(ocr_postproc)│     │  7 modules   │
+└──────────────┘     └──────────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+       │                     │                                              │
+       │                     └─→ Binarize (optional)                User corrections
+       │                     └─→ Line Calibration (optional)        (interactive)
        │
        └────────────────────────────────────────────────────────────────────▶
                                                           Output PDF
@@ -45,18 +45,23 @@ The application processes scanned PDF documents to:
 
 ### 1. Gradio UI (`app.py`)
 
-**File:** `app.py` (700+ lines)
+**File:** `app.py` (472 lines - refactored from 779)
 
 **Responsibilities:**
 - User interface for file upload and settings
-- Input validation (file type, size)
-- Progress tracking and error display
-- Orchestration of the processing pipeline
+- Thin wrapper around PDFProcessingPipeline
+- Progress callbacks and error display
 - State management for OCR correction workflow
+- Gradio event handlers
 
 **Key Functions:**
-- `process_pdf()`: Main processing pipeline
-- `apply_corrections_and_generate_pdf()`: Applies user corrections and generates final PDF
+- `process_pdf()`: Thin wrapper that creates ProcessingOptions and calls pipeline
+- `apply_corrections_and_generate_pdf()`: Applies user corrections via pipeline
+
+**Refactoring Note:**
+- Business logic extracted to `src/pipeline.py`
+- Configuration consolidated to `ProcessingOptions` dataclass
+- 39% reduction in code (779 → 472 lines)
 
 **UI Organization:**
 - **Left Column (Setup)**: Settings organized into sections
@@ -91,7 +96,40 @@ The application processes scanned PDF documents to:
 
 ---
 
-### 2. PDF Preprocessor (`src/pdf_preprocessor.py`)
+### 2. Pipeline Orchestrator (`src/pipeline.py`)
+
+**File:** `src/pipeline.py` (505 lines - NEW)
+
+**Responsibilities:**
+- Orchestrates complete PDF processing workflow
+- Validation → Preprocessing → MinerU API → OCR Correction → PDF Generation
+- Progress tracking and error handling
+- Business logic previously in app.py
+
+**Key Classes:**
+- `PDFProcessingPipeline`: Main orchestrator class
+
+**Key Functions:**
+- `process(options: ProcessingOptions) -> ProcessingResult`: Execute complete pipeline
+- `_validate_file()`: File validation with custom exceptions
+- `_preprocess_if_enabled()`: Optional binarization and line calibration
+- `_handle_ocr_correction()`: OCR correction workflow
+
+**Supporting Modules:**
+- `src/processing_options.py` (124 lines): `ProcessingOptions` dataclass
+- `src/processing_result.py` (111 lines): `ProcessingResult` dataclass
+- `src/config.py` (54 lines): Configuration constants
+- `src/exceptions.py` (203 lines): Custom exception hierarchy (18 types)
+
+**Benefits:**
+- Clean separation of UI and business logic
+- Reusable outside Gradio (CLI, API, batch processing)
+- Easier to test independently
+- Professional error handling with custom exceptions
+
+---
+
+### 3. PDF Preprocessor (`src/pdf_preprocessor.py`)
 
 **File:** `src/pdf_preprocessor.py` (290+ lines)
 
@@ -162,7 +200,7 @@ Line calibration fixes visual text overlap by:
 
 ---
 
-### 3. MinerU API Processor (`src/mineru_processor.py`)
+### 4. MinerU API Processor (`src/mineru_processor.py`)
 
 **File:** `src/mineru_processor.py` (420 lines)
 
@@ -204,9 +242,9 @@ The single-file endpoint only accepts URLs, not file uploads. Therefore, a two-s
 
 ---
 
-### 4. Document Builder (`src/document_builder.py`)
+### 5. Document Builder Package (`src/document_builder/`)
 
-**File:** `src/document_builder.py` (1,082 lines)
+**Package Structure:** 7 focused modules (2,355 lines total - refactored from 1,668)
 
 **Responsibilities:**
 - Parse MinerU JSON/Markdown output
@@ -214,8 +252,53 @@ The single-file endpoint only accepts URLs, not file uploads. Therefore, a two-s
 - Convert pixel coordinates to points
 - Render PDF with ReportLab using exact positioning
 
-**Key Classes:**
-- `DocumentBuilder`: Main PDF building class with DPI-aware coordinate conversion
+**Modules:**
+
+1. **`builder.py`** (962 lines) - Core DocumentBuilder orchestrator
+   - Main `DocumentBuilder` class
+   - Delegates to specialized components
+   - 42% reduction from original monolithic file
+
+2. **`font_manager.py`** (122 lines) - Font registration & Cyrillic support
+   - `FontManager` class
+   - Font path lookups (bundled, Linux, macOS, Windows)
+   - Cyrillic support detection
+   - Font fallback chains
+
+3. **`coordinate_utils.py`** (252 lines) - DPI & coordinate conversion
+   - Pure utility functions (no class state)
+   - `calculate_dpi_from_page_size()`: Detect scan DPI
+   - `convert_bbox_to_points()`: Pixel → point conversion
+   - `flip_y_coordinate()`: Top-left → bottom-left origin
+   - `calculate_margins_from_layout()`: Margin calculation
+
+4. **`text_extractor.py`** (179 lines) - Text extraction & footnote detection
+   - `TextExtractor` class
+   - `extract_text_lines_from_block()`: Parse nested structures
+   - `is_footnote_block()`: Position + content pattern analysis
+
+5. **`layout_analyzer.py`** (469 lines) - Font sizing & layout analysis
+   - `LayoutAnalyzer` class
+   - Font size bucket mapping (bbox height → font size)
+   - Gap detection between blocks
+   - Dynamic spacing calculations
+
+6. **`content_renderer.py`** (317 lines) - Images, tables, equations
+   - `ContentRenderer` class
+   - Image handling (paths, base64, HTTP URLs)
+   - Table rendering with ReportLab Table
+   - Equation rendering (LaTeX → monospace text)
+   - Temporary file cleanup
+
+7. **`__init__.py`** (54 lines) - Public API exports
+   - Re-exports for backward compatibility
+   - All existing imports work unchanged
+
+**Key Benefits:**
+- Single Responsibility Principle applied
+- Each component independently testable
+- 100% backward compatible
+- Easier to maintain and extend
 
 **Rendering Methods:**
 1. **Layout-based rendering** (`add_from_layout_json`): Primary method using canvas-based absolute positioning with exact layout preservation
@@ -322,7 +405,7 @@ This ensures paragraphs are wrapped for the same width as the PDF page content a
 
 ---
 
-### 5. OCR Post-Processor (`src/ocr_postprocessor.py`)
+### 6. OCR Post-Processor (`src/ocr_postprocessor.py`)
 
 **File:** `src/ocr_postprocessor.py` (235 lines)
 
@@ -358,9 +441,9 @@ Manual correction is more reliable than automated grammar checking because:
 
 ---
 
-### 6. Utilities (`src/utils.py`)
+### 7. Utilities (`src/utils.py`)
 
-**File:** `src/utils.py` (102 lines)
+**File:** `src/utils.py` (108 lines - refactored)
 
 **Responsibilities:**
 - File validation (extension, size)
@@ -368,9 +451,15 @@ Manual correction is more reliable than automated grammar checking because:
 - File size formatting for user display
 
 **Key Functions:**
-- `validate_pdf_path()`: Check file extension
-- `check_file_size_limit()`: Verify size constraints
+- `validate_pdf_path()`: Check file extension (raises `InvalidFileError`)
+- `check_file_size_limit()`: Verify size constraints (raises `FileSizeLimitExceededError`)
 - `clean_filename()`: Sanitize output filenames
+- `format_file_size()`: Human-readable file size formatting
+
+**Refactoring Note:**
+- Now raises custom exceptions instead of returning bools
+- More Pythonic error handling
+- Better error messages with context
 
 ---
 

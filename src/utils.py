@@ -6,27 +6,27 @@ import os
 import re
 from typing import Tuple
 
+from .exceptions import InvalidFileError, FileSizeLimitExceededError
 
-def validate_pdf_path(pdf_path: str) -> bool:
+
+def validate_pdf_path(pdf_path: str) -> None:
     """
     Validate PDF file exists and has correct extension.
 
     Args:
         pdf_path: Path to PDF file
 
-    Returns:
-        True if valid, False otherwise
+    Raises:
+        InvalidFileError: If file doesn't exist or has wrong extension
     """
     if not pdf_path:
-        return False
+        raise InvalidFileError("PDF path cannot be empty")
 
     if not os.path.exists(pdf_path):
-        return False
+        raise InvalidFileError(f"File does not exist: {pdf_path}")
 
     if not pdf_path.lower().endswith('.pdf'):
-        return False
-
-    return True
+        raise InvalidFileError(f"File must have .pdf extension: {pdf_path}")
 
 
 def format_file_size(size_bytes: int) -> str:
@@ -78,7 +78,7 @@ def clean_filename(filename: str) -> str:
     return name or 'document'
 
 
-def check_file_size_limit(file_path: str, max_mb: int = 200) -> Tuple[bool, float, str]:
+def check_file_size_limit(file_path: str, max_mb: int = 200) -> float:
     """
     Check if file is within size limit.
 
@@ -87,15 +87,21 @@ def check_file_size_limit(file_path: str, max_mb: int = 200) -> Tuple[bool, floa
         max_mb: Maximum size in MB (default 200 for MinerU API)
 
     Returns:
-        (is_valid, size_mb, message)
+        File size in MB
+
+    Raises:
+        FileSizeLimitExceededError: If file exceeds size limit
+        InvalidFileError: If file size cannot be determined
     """
     try:
         size_bytes = os.path.getsize(file_path)
         size_mb = size_bytes / (1024 * 1024)
 
         if size_mb > max_mb:
-            return False, size_mb, f"File size ({size_mb:.1f} MB) exceeds limit of {max_mb} MB"
+            raise FileSizeLimitExceededError(size_mb, max_mb)
 
-        return True, size_mb, "OK"
+        return size_mb
+    except FileSizeLimitExceededError:
+        raise
     except Exception as e:
-        return False, 0, f"Error checking file size: {str(e)}"
+        raise InvalidFileError(f"Error checking file size: {str(e)}")
