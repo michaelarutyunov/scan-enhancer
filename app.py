@@ -142,8 +142,8 @@ def process_pdf(
 
 
 # Create Gradio interface
-with gr.Blocks(title="PDF Document Cleaner") as app:
-    gr.Markdown("# 📚 PDF Document Cleaner")
+with gr.Blocks(title="PDF Cleaner & OCR Corrector") as app:
+    gr.Markdown("# 📄 PDF Cleaner & OCR Corrector")
 
     gr.Markdown("""
     Powered by [MinerU](https://mineru.net/) - An open-source document parsing solution.
