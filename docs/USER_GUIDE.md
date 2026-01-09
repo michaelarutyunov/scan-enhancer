@@ -20,7 +20,7 @@ Complete guide to using the PDF Document Cleaner application.
 ### Basic Workflow (3 Steps)
 
 1. **Upload your PDF** - Click "Upload Scanned PDF Document"
-2. **Select language** - Choose the document's language (Russian, English, etc.)
+2. **Select language** - Choose the document's language (English is default)
 3. **Click Process** - Press "🔍 Process the document"
 
 That's it! The app will use default settings optimized for most scanned documents.
@@ -125,8 +125,8 @@ The app offers two distinct rendering modes for generating the output PDF:
 **What it does:** Tells MinerU which language model to use for OCR
 
 **Options:**
-- Russian (ru) - Default
-- English (en)
+- English (en) - Default
+- Russian (ru)
 - Chinese (ch)
 - Japanese (japan)
 - Korean (korean)
@@ -140,7 +140,7 @@ The app offers two distinct rendering modes for generating the output PDF:
 - For mixed-language documents, choose the predominant language
 
 **Example:**
-- English textbook → Select "English"
+- English textbook → Select "English" (default)
 - Russian legal document → Select "Russian"
 
 ---

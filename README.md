@@ -1,5 +1,5 @@
 ---
-title: PDF Document Cleaner
+title: PDF Cleaner & OCR Corrector
 emoji: 📚
 colorFrom: blue
 colorTo: purple
@@ -10,7 +10,7 @@ pinned: false
 python_version: "3.10"
 ---
 
-# PDF Document Cleaner 📚
+# PDF Cleaner & OCR Corrector 📄
 
 A HuggingFace Spaces application that processes scanned PDF documents using **MinerU API** to extract text while preserving images, tables, and document structure.
 
