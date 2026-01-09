@@ -495,8 +495,25 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             correction_status
         ]
     ).then(
-        fn=lambda: gr.update(visible=True),
-        outputs=output_file
+        fn=lambda pdf_path, status: (
+            gr.update(visible=pdf_path is not None),  # output_file - show if PDF generated
+            gr.update(visible=False),  # corrections_table - hide
+            gr.update(visible=False),  # apply_corrections_btn - hide
+            gr.update(visible=False),  # correction_header - hide
+            gr.update(visible=False),  # correction_instructions - hide
+            gr.update(visible=status is not None),  # correction_status - show with message
+            None  # processor_state - clear
+        ),
+        inputs=[output_file, correction_status],
+        outputs=[
+            output_file,
+            corrections_table,
+            apply_corrections_btn,
+            correction_header,
+            correction_instructions,
+            correction_status,
+            processor_state
+        ]
     )
 
 

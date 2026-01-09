@@ -17,6 +17,7 @@ from .mineru_processor import MinerUAPIProcessor
 from .pdf_preprocessor import preprocess_pdf, is_available, fix_overlapping_blocks
 from .document_builder import (
     DocumentBuilder,
+    LayoutAnalyzer,
     create_pdf_from_mineru,
     create_pdf_from_layout,
     create_pdf_from_layout_flow,
@@ -380,8 +381,8 @@ class PDFProcessingPipeline:
                 if pdf_info:
                     first_page_size = pdf_info[0].get("page_size", [612, 792])
                     # Use the same DPI calculation as DocumentBuilder
-                    temp_builder = DocumentBuilder.__new__(DocumentBuilder)
-                    dpi = temp_builder._calculate_dpi_from_page_size(first_page_size)
+                    analyzer = LayoutAnalyzer()
+                    dpi = analyzer.calculate_dpi_from_page_size(first_page_size)
                     # Calculate margins from layout
                     calculated_margin = calculate_margins_from_layout(layout_data, dpi)
                 else:
@@ -498,8 +499,8 @@ def apply_corrections_and_generate_pdf(
             if pdf_info:
                 first_page_size = pdf_info[0].get("page_size", [612, 792])
                 # Use the same DPI calculation as DocumentBuilder
-                temp_builder = DocumentBuilder.__new__(DocumentBuilder)
-                dpi = temp_builder._calculate_dpi_from_page_size(first_page_size)
+                analyzer = LayoutAnalyzer()
+                dpi = analyzer.calculate_dpi_from_page_size(first_page_size)
                 # Calculate margins from layout
                 calculated_margin = calculate_margins_from_layout(layout_data, dpi)
             else:
