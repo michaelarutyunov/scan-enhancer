@@ -147,6 +147,8 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
 
     gr.Markdown("""
     Powered by [MinerU](https://mineru.net/) - An open-source document parsing solution.
+
+    📖 **[View User Guide](https://github.com/michaelarutyunov/scan-enhancer/blob/main/docs/USER_GUIDE.md)** - Detailed settings explanations & troubleshooting
     """)
 
     with gr.Row():
@@ -164,7 +166,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                     ("French", "french"),
                     ("Spanish", "spanish"),
                 ],
-                value="ru",
+                value="en",
                 info="Select the primary language for better OCR accuracy"
             )
 
@@ -196,7 +198,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
             )
 
             gr.Markdown("---")
-            gr.Markdown("### ⚙️ Additional Settings")
+            gr.Markdown("### Rendering Settings")
 
             download_raw = gr.Checkbox(
                 label="Download raw MinerU output (for diagnostics)",
@@ -228,7 +230,7 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
                 """)
 
             enable_formula = gr.Checkbox(
-                label="Enable formula detection",
+                label="Enable formula detection (MinerU feature)",
                 value=False,
                 info="Disable if text is being misclassified as equations (e.g., single letters or special characters)"
             )
@@ -312,7 +314,6 @@ with gr.Blocks(title="PDF Document Cleaner") as app:
         with gr.Column():
             gr.Markdown("## Workflow")
             gr.Markdown("**Tips:** 1) Maximum file size: 200 MB, 2) Vertical page orientation")
-            gr.Markdown("📖 **[View User Guide](https://github.com/yourusername/scan-enhancer/blob/main/docs/USER_GUIDE.md)** - Detailed settings explanations & troubleshooting")
 
             pdf_input = gr.File(
                 label="Upload PDF Document",
